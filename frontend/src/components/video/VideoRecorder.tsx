@@ -16,8 +16,12 @@ export const VideoRecorder = ({
   const [isVideoReady, setIsVideoReady] = useState(false);
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [showRecordedVideo, setShowRecordedVideo] = useState(false);
+  const [showLandmarks, setShowLandmarks] = useState(true);
   const animationFrameRef = useRef<number>();
   const lastProcessedTimeRef = useRef(0);
+  const processingRef = useRef(false);
+  const frameIntervalRef = useRef(1000 / 30); // Target 30fps
+  const videoUrlRef = useRef<string | null>(null);
 
   const {
     isRecording,
@@ -34,15 +38,35 @@ export const VideoRecorder = ({
     detectLandmarks,
   } = useMediaPipe();
 
+  // Clean up video URL when component unmounts or blob changes
+  useEffect(() => {
+    return () => {
+      if (videoUrlRef.current) {
+        URL.revokeObjectURL(videoUrlRef.current);
+        videoUrlRef.current = null;
+      }
+    };
+  }, [recordedBlob]);
+
   // Set up video stream when available
   useEffect(() => {
     const setupVideo = async () => {
-      if (!videoRef.current || !stream) return;
+      if (!videoRef.current) return;
       
       try {
-        videoRef.current.srcObject = stream;
-        console.log('Video stream set');
-        setIsCameraReady(true);
+        if (!showRecordedVideo && stream) {
+          videoRef.current.srcObject = stream;
+          console.log('Live video stream set');
+          setIsCameraReady(true);
+        } else if (showRecordedVideo && recordedBlob) {
+          videoRef.current.srcObject = null;
+          if (videoUrlRef.current) {
+            URL.revokeObjectURL(videoUrlRef.current);
+          }
+          videoUrlRef.current = URL.createObjectURL(recordedBlob);
+          videoRef.current.src = videoUrlRef.current;
+          setIsCameraReady(true);
+        }
       } catch (err) {
         console.error('Error setting video stream:', err);
         setIsCameraReady(false);
@@ -50,7 +74,7 @@ export const VideoRecorder = ({
     };
 
     setupVideo();
-  }, [stream]);
+  }, [stream, showRecordedVideo, recordedBlob]);
 
   // Handle video element events
   useEffect(() => {
@@ -58,7 +82,12 @@ export const VideoRecorder = ({
     if (!video) return;
 
     const handleLoadedMetadata = () => {
-      console.log('Video metadata loaded');
+      console.log('Video metadata loaded:', {
+        duration: video.duration,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        readyState: video.readyState
+      });
       video.play().catch(err => console.error('Error playing video:', err));
     };
 
@@ -68,7 +97,8 @@ export const VideoRecorder = ({
     };
 
     const handleError = (e: Event) => {
-      console.error('Video error:', e);
+      const videoElement = e.target as HTMLVideoElement;
+      console.error('Video error:', videoElement.error);
       setIsVideoReady(false);
     };
 
@@ -87,37 +117,50 @@ export const VideoRecorder = ({
   useEffect(() => {
     if (!isRecording && recordedBlob) {
       onRecordingComplete?.(recordedBlob);
-      setShowRecordedVideo(true); // Automatically show recorded video when done
     }
   }, [isRecording, recordedBlob, onRecordingComplete]);
 
   const processFrame = useCallback(async (now: number) => {
-    if (!videoRef.current || !isMediaPipeReady || !isVideoReady) return;
+    if (!videoRef.current || !isMediaPipeReady || !isVideoReady || processingRef.current) return;
 
-    // Process every 3rd frame (approximately)
-    if (now - lastProcessedTimeRef.current > 100) { // ~10fps instead of 30fps
+    const timeSinceLastProcess = now - lastProcessedTimeRef.current;
+    if (timeSinceLastProcess < frameIntervalRef.current) {
+      animationFrameRef.current = requestAnimationFrame(processFrame);
+      return;
+    }
+
+    try {
+      processingRef.current = true;
       const result = await detectLandmarks(videoRef.current, now);
       if (result) {
         setLandmarks(result);
         lastProcessedTimeRef.current = now;
       }
+    } finally {
+      processingRef.current = false;
     }
 
-    animationFrameRef.current = requestAnimationFrame(processFrame);
+    if (videoRef.current && !videoRef.current.paused) {
+      animationFrameRef.current = requestAnimationFrame(processFrame);
+    }
   }, [isMediaPipeReady, isVideoReady, detectLandmarks]);
 
   // MediaPipe detection loop
   useEffect(() => {
-    if (isMediaPipeReady && stream && isVideoReady && !showRecordedVideo) {
+    if (isMediaPipeReady && isVideoReady && !processingRef.current && showLandmarks) {
+      console.log('Starting landmark detection loop');
       animationFrameRef.current = requestAnimationFrame(processFrame);
     }
 
     return () => {
       if (animationFrameRef.current) {
+        console.log('Stopping landmark detection loop');
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = undefined;
       }
+      processingRef.current = false;
     };
-  }, [isMediaPipeReady, stream, isVideoReady, processFrame, showRecordedVideo]);
+  }, [isMediaPipeReady, isVideoReady, processFrame, showLandmarks]);
 
   const drawLandmarks = useCallback(() => {
     if (!canvasRef.current || !landmarks) return;
@@ -152,12 +195,18 @@ export const VideoRecorder = ({
     });
   }, [landmarks, width, height]);
 
-  // Draw landmarks when available
+  // Draw landmarks when available and enabled
   useEffect(() => {
-    if (!showRecordedVideo) {
+    if (showLandmarks) {
       drawLandmarks();
+    } else if (canvasRef.current) {
+      // Clear canvas when landmarks are hidden
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, width, height);
+      }
     }
-  }, [drawLandmarks, showRecordedVideo]);
+  }, [drawLandmarks, showLandmarks, width, height]);
 
   const isReadyToRecord = isMediaPipeReady && isVideoReady && isCameraReady;
 
@@ -182,49 +231,66 @@ export const VideoRecorder = ({
           >
             Recorded Video
           </button>
+          <button
+            onClick={() => setShowLandmarks(prev => !prev)}
+            className={`px-4 py-2 rounded-lg font-medium transition duration-300 ease-in-out ${
+              showLandmarks ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            {showLandmarks ? 'Hide Landmarks' : 'Show Landmarks'}
+          </button>
         </div>
       )}
 
-      {/* Live camera view */}
-      {!showRecordedVideo && (
-        <div className="relative w-full max-w-xl bg-gray-700 rounded-lg overflow-hidden">
-          <video
-            ref={videoRef}
-            className="w-full h-auto rounded-lg"
-            width={width}
-            height={height}
-            autoPlay
-            playsInline
-            muted
-          ></video>
-          <canvas
-            ref={canvasRef}
-            className="absolute top-0 left-0 w-full h-full"
-            width={width}
-            height={height}
-          ></canvas>
-          {!isCameraReady && <p className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 text-white text-xl">Initializing camera...</p>}
-          {isCameraReady && !isMediaPipeReady && <p className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 text-white text-xl">Initializing MediaPipe...</p>}
-          {isCameraReady && isMediaPipeReady && !isVideoReady && <p className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75 text-white text-xl">Preparing video...</p>}
-          {isRecording && (
-            <div className="absolute top-2 right-2 bg-red-500 text-white px-3 py-1 rounded-full text-sm animate-pulse">
-              REC
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Recorded video view */}
-      {showRecordedVideo && recordedBlob && (
-        <div className="w-full max-w-xl bg-gray-700 rounded-lg overflow-hidden">
-          <video 
-            className="w-full h-auto rounded-lg"
-            src={URL.createObjectURL(recordedBlob)}
-            controls
-            autoPlay
-          />
-        </div>
-      )}
+      {/* Video container */}
+      <div className="relative w-full max-w-xl bg-gray-700 rounded-lg overflow-hidden">
+        <video
+          ref={videoRef}
+          className="w-full h-auto rounded-lg"
+          width={width}
+          height={height}
+          autoPlay
+          playsInline
+          muted={!showRecordedVideo}
+          controls={showRecordedVideo}
+          onTimeUpdate={() => {
+            if (showRecordedVideo && showLandmarks && !processingRef.current) {
+              requestAnimationFrame(processFrame);
+            }
+          }}
+          onPlay={() => {
+            console.log('Video playback started');
+            setIsVideoReady(true);
+            if (showRecordedVideo && showLandmarks) {
+              requestAnimationFrame(processFrame);
+            }
+          }}
+          onPause={() => {
+            console.log('Video playback paused');
+            if (animationFrameRef.current) {
+              cancelAnimationFrame(animationFrameRef.current);
+              animationFrameRef.current = undefined;
+            }
+          }}
+          onSeeked={() => {
+            console.log('Video seeked');
+            if (showRecordedVideo && showLandmarks) {
+              requestAnimationFrame(processFrame);
+            }
+          }}
+        />
+        <canvas
+          ref={canvasRef}
+          className="absolute top-0 left-0 w-full h-full pointer-events-none"
+          width={width}
+          height={height}
+        />
+        {isRecording && (
+          <div className="absolute top-2 right-2 bg-red-500 text-white px-3 py-1 rounded-full text-sm animate-pulse">
+            REC
+          </div>
+        )}
+      </div>
 
       {/* Recording controls - only show in live view */}
       {!showRecordedVideo && (
@@ -247,6 +313,25 @@ export const VideoRecorder = ({
           >
             Stop Recording
           </button>
+        </div>
+      )}
+
+      {/* Status messages */}
+      {!isCameraReady && (
+        <div className="text-blue-500 text-sm">
+          Initializing camera...
+        </div>
+      )}
+
+      {!isMediaPipeReady && (
+        <div className="text-blue-500 text-sm">
+          Initializing MediaPipe...
+        </div>
+      )}
+
+      {!isVideoReady && stream && (
+        <div className="text-blue-500 text-sm">
+          Preparing video...
         </div>
       )}
 

@@ -17,8 +17,9 @@ export const initializeMediaPipe = async (): Promise<HandLandmarker> => {
         modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
         delegate: "GPU"
       },
-      runningMode: "VIDEO", // We'll use VIDEO mode since we're processing video frames
+      runningMode: "VIDEO",
       numHands: 2,
+      imageDimensions: { width: 1280, height: 720 },
     });
 
     return handLandmarkerInstance;
