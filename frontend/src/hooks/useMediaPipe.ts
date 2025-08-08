@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { HandLandmarker } from '@mediapipe/tasks-vision';
-import { type HandLandmarkerResult } from '../types/mediapipe';
+import type { HandLandmarkerResult } from '@mediapipe/tasks-vision';
 import { initializeMediaPipe } from '../utils/mediapipe';
 
 export const useMediaPipe = () => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const handLandmarkerRef = useRef<HandLandmarker | null>(null);
-  const isProcessingRef = useRef(false);
+  const handDetectorRef = useRef<HandLandmarker | null>(null);
+  const processingRef = useRef(false);
 
   useEffect(() => {
     const init = async () => {
       try {
-        handLandmarkerRef.current = await initializeMediaPipe();
+        const detector = await initializeMediaPipe();
+        handDetectorRef.current = detector;
         setIsInitialized(true);
       } catch (err) {
         console.error('MediaPipe initialization error:', err);
@@ -23,42 +24,34 @@ export const useMediaPipe = () => {
     init();
 
     return () => {
-      if (handLandmarkerRef.current) {
-        handLandmarkerRef.current.close();
+      if (handDetectorRef.current) {
+        handDetectorRef.current.close();
       }
     };
   }, []);
 
-  const detectLandmarks = useCallback(async (
-    video: HTMLVideoElement,
-    timestamp: number
-  ): Promise<HandLandmarkerResult | null> => {
-    if (!handLandmarkerRef.current || !isInitialized || isProcessingRef.current) {
+  const detectLandmarks = useCallback(async (video: HTMLVideoElement, timestamp: number): Promise<HandLandmarkerResult | null> => {
+    if (!handDetectorRef.current || processingRef.current) {
       return null;
     }
 
-    // Check if video is ready
-    if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+    // Check video dimensions and readiness
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0 || video.readyState < 2) {
       return null;
     }
 
     try {
-      isProcessingRef.current = true;
-
-      const result = handLandmarkerRef.current.detectForVideo(video, timestamp);
-      // Only return screen landmarks and handedness, skip worldLandmarks to avoid warnings
-      return {
-        landmarks: result.landmarks || [],
-        handedness: result.handedness || []
-      };
+      processingRef.current = true;
+      const results = handDetectorRef.current.detectForVideo(video, timestamp);
+      return results;
     } catch (err) {
       console.error('Landmark detection error:', err);
       setError(err instanceof Error ? err.message : 'Failed to detect landmarks');
       return null;
     } finally {
-      isProcessingRef.current = false;
+      processingRef.current = false;
     }
-  }, [isInitialized]);
+  }, []);
 
   return {
     isInitialized,

@@ -1,8 +1,11 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { useVideoRecorder } from '../../hooks/useVideoRecorder';
 import { useMediaPipe } from '../../hooks/useMediaPipe';
+import { useUpload } from '../../hooks/useUpload';
 import type { VideoRecorderProps } from '../../types/video';
-import type { HandLandmarkerResult } from '../../types/mediapipe';
+import type { HandLandmarkerResult } from '@mediapipe/tasks-vision';
+import { LandmarkDataCollector, type RecordingData } from '../../types/landmarks';
+import { UploadProgress } from '../upload/UploadProgress';
 
 export const VideoRecorder = ({
   maxDuration = 7,
@@ -22,6 +25,8 @@ export const VideoRecorder = ({
   const processingRef = useRef(false);
   const frameIntervalRef = useRef(1000 / 30); // Target 30fps
   const videoUrlRef = useRef<string | null>(null);
+  const landmarkCollectorRef = useRef<LandmarkDataCollector>(new LandmarkDataCollector(width, height));
+  const [recordedLandmarks, setRecordedLandmarks] = useState<RecordingData | null>(null);
 
   const {
     isRecording,
@@ -92,8 +97,15 @@ export const VideoRecorder = ({
     };
 
     const handleCanPlay = () => {
-      console.log('Video can play');
-      setIsVideoReady(true);
+      console.log('Video can play', {
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        readyState: video.readyState
+      });
+      // Only set ready if video has proper dimensions
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        setIsVideoReady(true);
+      }
     };
 
     const handleError = (e: Event) => {
@@ -113,15 +125,48 @@ export const VideoRecorder = ({
     };
   }, []);
 
-  // Handle recording completion
+  // Handle recording start/stop
+  const { upload, progress, reset: resetUpload } = useUpload();
+
   useEffect(() => {
-    if (!isRecording && recordedBlob) {
-      onRecordingComplete?.(recordedBlob);
+    if (isRecording) {
+      // Reset landmark collector when starting new recording
+      landmarkCollectorRef.current.reset();
+      setRecordedLandmarks(null);
+      resetUpload();
+    } else if (recordedBlob) {
+      // Get landmark data when recording stops
+      const landmarkData = landmarkCollectorRef.current.getData();
+      setRecordedLandmarks(landmarkData);
+      console.log('Recording completed with landmarks:', landmarkData);
+
+      // Upload the recording and landmarks
+      const handleUpload = async () => {
+        try {
+          // For now, we'll use a placeholder sign ID
+          // Later, we'll get this from the current exercise/lesson
+          const signId = 'placeholder-sign-id';
+          const result = await upload(signId, recordedBlob, landmarkData);
+          console.log('Upload completed:', result);
+          onRecordingComplete?.(recordedBlob);
+        } catch (error) {
+          console.error('Upload failed:', error);
+        }
+      };
+
+      handleUpload();
     }
-  }, [isRecording, recordedBlob, onRecordingComplete]);
+  }, [isRecording, recordedBlob, onRecordingComplete, upload, resetUpload]);
 
   const processFrame = useCallback(async (now: number) => {
-    if (!videoRef.current || !isMediaPipeReady || !isVideoReady || processingRef.current) return;
+    const video = videoRef.current;
+    if (!video || !isMediaPipeReady || !isVideoReady || processingRef.current) return;
+
+    // Double-check video dimensions before processing
+    if (video.videoWidth === 0 || video.videoHeight === 0 || video.readyState < 2) {
+      animationFrameRef.current = requestAnimationFrame(processFrame);
+      return;
+    }
 
     const timeSinceLastProcess = now - lastProcessedTimeRef.current;
     if (timeSinceLastProcess < frameIntervalRef.current) {
@@ -131,19 +176,24 @@ export const VideoRecorder = ({
 
     try {
       processingRef.current = true;
-      const result = await detectLandmarks(videoRef.current, now);
+      const result = await detectLandmarks(video, now);
       if (result) {
         setLandmarks(result);
         lastProcessedTimeRef.current = now;
+        
+        // Store landmarks if recording
+        if (isRecording) {
+          landmarkCollectorRef.current.processFrame(result, now);
+        }
       }
     } finally {
       processingRef.current = false;
     }
 
-    if (videoRef.current && !videoRef.current.paused) {
+    if (video && !video.paused) {
       animationFrameRef.current = requestAnimationFrame(processFrame);
     }
-  }, [isMediaPipeReady, isVideoReady, detectLandmarks]);
+  }, [isMediaPipeReady, isVideoReady, detectLandmarks, isRecording]);
 
   // MediaPipe detection loop
   useEffect(() => {
@@ -339,6 +389,9 @@ export const VideoRecorder = ({
       {(recordingError || mediaPipeError) && (
         <p className="text-red-500 mt-4 text-center">{recordingError || mediaPipeError}</p>
       )}
+
+      {/* Upload progress */}
+      <UploadProgress progress={progress} />
     </div>
   );
 };
