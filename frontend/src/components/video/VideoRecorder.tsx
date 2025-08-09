@@ -5,6 +5,7 @@ import { useUpload } from '../../hooks/useUpload';
 import type { VideoRecorderProps } from '../../types/video';
 import type { HandLandmarkerResult } from '@mediapipe/tasks-vision';
 import { LandmarkDataCollector } from '../../types/landmarks';
+import type { RecordingData } from '../../types/landmarks';
 import { UploadProgress } from '../upload/UploadProgress';
 import { LandmarkViewer } from '../landmarks/LandmarkViewer';
 
@@ -23,10 +24,7 @@ export const VideoRecorder: React.FC<VideoRecorderProps> = ({
   const [showRecordedVideo, setShowRecordedVideo] = useState(false);
   const [showLandmarks, setShowLandmarks] = useState(true);
   const animationFrameRef = useRef<number>();
-  const lastProcessedTimeRef = useRef(0);
   const processingRef = useRef(false);
-  // Run heavy landmark detection at a throttled rate (~10 fps) to avoid long rAF handlers
-  const frameIntervalRef = useRef(100); // ms between detections
   const videoUrlRef = useRef<string | null>(null);
   const landmarkCollectorRef = useRef<LandmarkDataCollector>(new LandmarkDataCollector(width, height));
   const [recordedLandmarks, setRecordedLandmarks] = useState<RecordingData | null>(null);
@@ -131,8 +129,6 @@ export const VideoRecorder: React.FC<VideoRecorderProps> = ({
 
   // Handle recording start/stop
   useEffect(() => {
-    console.log('VideoRecorder useEffect:', { isRecording, hasRecordedBlob: !!recordedBlob, hasRecordedLandmarks: !!recordedLandmarks });
-    
     if (isRecording) {
       // Reset landmark collector when starting new recording
       landmarkCollectorRef.current.reset();
@@ -142,13 +138,9 @@ export const VideoRecorder: React.FC<VideoRecorderProps> = ({
       // Get landmark data when recording stops (only once)
       const landmarkData = landmarkCollectorRef.current.getData();
       setRecordedLandmarks(landmarkData);
-      console.log('Recording completed with landmarks:', landmarkData);
-
       // Always call the completion callback immediately for form-based workflows
       // For ReferenceRecorder, we'll handle the upload separately
-      console.log('About to call onRecordingComplete with:', { recordedBlob, frames: landmarkData.frames.length });
       onRecordingComplete?.(recordedBlob, landmarkData.frames);
-      console.log('onRecordingComplete called successfully');
 
       // Upload the recording and landmarks (optional for reference recording)
       const handleUpload = async () => {
@@ -166,64 +158,113 @@ export const VideoRecorder: React.FC<VideoRecorderProps> = ({
 
       handleUpload();
     }
-  }, [isRecording, recordedBlob, recordedLandmarks, onRecordingComplete, upload, resetUpload]);
+  }, [isRecording, recordedBlob, recordedLandmarks, onRecordingComplete]);
 
-  const processFrame = useCallback((now: number) => {
-    const video = videoRef.current;
-    if (!video || !isMediaPipeReady || !isVideoReady || processingRef.current) return;
-
-    // Double-check video dimensions before processing
-    if (video.videoWidth === 0 || video.videoHeight === 0 || video.readyState < 2) {
-      animationFrameRef.current = requestAnimationFrame(processFrame);
-      return;
-    }
-
-    const timeSinceLastProcess = now - lastProcessedTimeRef.current;
-    if (timeSinceLastProcess < frameIntervalRef.current) {
-      animationFrameRef.current = requestAnimationFrame(processFrame);
-      return;
-    }
-
-    // Kick off detection asynchronously so this rAF handler returns quickly
-    processingRef.current = true;
-    Promise.resolve(detectLandmarks(video, now))
-      .then((result) => {
-        if (result) {
-          setLandmarks(result);
-          lastProcessedTimeRef.current = now;
-
-          // Store landmarks if recording
-          if (isRecording) {
-            landmarkCollectorRef.current.processFrame(result, now);
-          }
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        processingRef.current = false;
-      });
-
-    if (video && !video.paused) {
-      animationFrameRef.current = requestAnimationFrame(processFrame);
-    }
-  }, [isMediaPipeReady, isVideoReady, detectLandmarks, isRecording]);
-
-  // MediaPipe detection loop
+  // Cleanup when component unmounts
   useEffect(() => {
-    if (isMediaPipeReady && isVideoReady && !processingRef.current && showLandmarks) {
-      console.log('Starting landmark detection loop');
-      animationFrameRef.current = requestAnimationFrame(processFrame);
-    }
-
     return () => {
-      if (animationFrameRef.current) {
-        console.log('Stopping landmark detection loop');
+      // Stop any ongoing landmark detection
+      if (processingRef.current) {
+        processingRef.current = false;
+      }
+      
+      // Stop the animation frame if running
+      if (animationFrameRef.current !== undefined) {
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = undefined;
       }
+      
+      // Clean up video URL
+      if (videoUrlRef.current) {
+        URL.revokeObjectURL(videoUrlRef.current);
+        videoUrlRef.current = null;
+      }
+      
+      // Cleanup completed
+    };
+  }, []);
+
+  // REMOVED useCallback to prevent dependency loops - using ref-based approach
+
+  // COMPLETELY REF-BASED LANDMARK DETECTION - ZERO DEPENDENCIES
+  const isMediaPipeReadyRef = useRef(isMediaPipeReady);
+  const isVideoReadyRef = useRef(isVideoReady);
+  const showLandmarksRef = useRef(showLandmarks);
+  const isRecordingRef = useRef(isRecording);
+  
+  // Update refs when values change
+  useEffect(() => { isMediaPipeReadyRef.current = isMediaPipeReady; }, [isMediaPipeReady]);
+  useEffect(() => { isVideoReadyRef.current = isVideoReady; }, [isVideoReady]);
+  useEffect(() => { showLandmarksRef.current = showLandmarks; }, [showLandmarks]);
+  useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
+
+  useEffect(() => {
+    let animationId: number;
+    let lastTime = 0;
+    const frameInterval = 100; // ~10fps to avoid overload
+    
+    const processFrame = async (timestamp: number) => {
+      // Check refs instead of closure variables
+      if (!isMediaPipeReadyRef.current || !isVideoReadyRef.current || !showLandmarksRef.current) {
+        animationId = requestAnimationFrame(processFrame);
+        return;
+      }
+      
+      const video = videoRef.current;
+      
+      // Basic checks
+      if (!video || video.videoWidth === 0 || video.videoHeight === 0 || video.readyState < 2) {
+        animationId = requestAnimationFrame(processFrame);
+        return;
+      }
+      
+      // Throttle to ~10fps
+      if (timestamp - lastTime < frameInterval) {
+        animationId = requestAnimationFrame(processFrame);
+        return;
+      }
+      
+      // Skip if already processing
+      if (processingRef.current) {
+        animationId = requestAnimationFrame(processFrame);
+        return;
+      }
+      
+      try {
+        processingRef.current = true;
+        lastTime = timestamp;
+        
+        // Call detectLandmarks directly
+        const result = await detectLandmarks(video, timestamp);
+        
+        if (result) {
+          setLandmarks(result);
+          
+          // Store landmarks if recording (check current recording state from ref)
+          if (isRecordingRef.current) {
+            landmarkCollectorRef.current.processFrame(result, timestamp);
+          }
+        }
+      } catch (error) {
+        console.error('Landmark detection error:', error);
+      } finally {
+        processingRef.current = false;
+      }
+      
+      // Continue loop
+      animationId = requestAnimationFrame(processFrame);
+    };
+    
+    // Start the loop
+    animationId = requestAnimationFrame(processFrame);
+    
+    return () => {
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+      }
       processingRef.current = false;
     };
-  }, [isMediaPipeReady, isVideoReady, processFrame, showLandmarks]);
+  }, []); // ZERO DEPENDENCIES!
 
   const drawLandmarks = useCallback(() => {
     if (!canvasRef.current || !landmarks) return;
@@ -321,9 +362,11 @@ export const VideoRecorder: React.FC<VideoRecorderProps> = ({
             if (showRecordedVideo && showLandmarks && !processingRef.current) {
               const anyVideo = videoRef.current as any;
               if (anyVideo?.requestVideoFrameCallback) {
-                anyVideo.requestVideoFrameCallback((now: number) => processFrame(now));
+                anyVideo.requestVideoFrameCallback(() => {
+                  // no-op; main detection loop is running separately
+                });
               } else {
-                requestAnimationFrame(processFrame);
+                // no-op; main detection loop is running separately
               }
             }
           }}
@@ -333,9 +376,11 @@ export const VideoRecorder: React.FC<VideoRecorderProps> = ({
             if (showRecordedVideo && showLandmarks) {
               const anyVideo = videoRef.current as any;
               if (anyVideo?.requestVideoFrameCallback) {
-                anyVideo.requestVideoFrameCallback((now: number) => processFrame(now));
+                anyVideo.requestVideoFrameCallback(() => {
+                  // no-op; main detection loop is running separately
+                });
               } else {
-                requestAnimationFrame(processFrame);
+                // no-op; main detection loop is running separately
               }
             }
           }}
@@ -351,9 +396,11 @@ export const VideoRecorder: React.FC<VideoRecorderProps> = ({
             if (showRecordedVideo && showLandmarks) {
               const anyVideo = videoRef.current as any;
               if (anyVideo?.requestVideoFrameCallback) {
-                anyVideo.requestVideoFrameCallback((now: number) => processFrame(now));
+                anyVideo.requestVideoFrameCallback((_now: number) => {
+                  // no-op; main detection loop is running separately
+                });
               } else {
-                requestAnimationFrame(processFrame);
+                // no-op; main detection loop is running separately
               }
             }
           }}

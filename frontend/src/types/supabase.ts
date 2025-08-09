@@ -78,6 +78,7 @@ export interface Database {
           heatmap: Json | null;
           video_url: string | null;
           feedback: string | null;
+          landmarks: Json | null;
           created_at: string;
           updated_at: string;
         };
@@ -91,6 +92,7 @@ export interface Database {
           heatmap?: Json | null;
           video_url?: string | null;
           feedback?: string | null;
+          landmarks?: Json | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -104,6 +106,7 @@ export interface Database {
           heatmap?: Json | null;
           video_url?: string | null;
           feedback?: string | null;
+          landmarks?: Json | null;
           created_at?: string;
           updated_at?: string;
         };

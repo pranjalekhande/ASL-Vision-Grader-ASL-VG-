@@ -1,19 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { HandLandmarker } from '@mediapipe/tasks-vision';
 import type { HandLandmarkerResult } from '@mediapipe/tasks-vision';
-import { initializeMediaPipe } from '../utils/mediapipe';
+import { mediaPipeService } from '../services/mediapipeService';
 
 export const useMediaPipe = () => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const handDetectorRef = useRef<HandLandmarker | null>(null);
   const processingRef = useRef(false);
 
   useEffect(() => {
     const init = async () => {
       try {
-        const detector = await initializeMediaPipe();
-        handDetectorRef.current = detector;
+        await mediaPipeService.acquire();
         setIsInitialized(true);
       } catch (err) {
         console.error('MediaPipe initialization error:', err);
@@ -24,14 +21,12 @@ export const useMediaPipe = () => {
     init();
 
     return () => {
-      if (handDetectorRef.current) {
-        handDetectorRef.current.close();
-      }
+      mediaPipeService.release();
     };
   }, []);
 
   const detectLandmarks = useCallback(async (video: HTMLVideoElement, timestamp: number): Promise<HandLandmarkerResult | null> => {
-    if (!handDetectorRef.current || processingRef.current) {
+    if (!mediaPipeService.isReady || processingRef.current) {
       return null;
     }
 
@@ -42,8 +37,7 @@ export const useMediaPipe = () => {
 
     try {
       processingRef.current = true;
-      const results = handDetectorRef.current.detectForVideo(video, timestamp);
-      return results;
+      return await mediaPipeService.detect(video, timestamp);
     } catch (err) {
       console.error('Landmark detection error:', err);
       setError(err instanceof Error ? err.message : 'Failed to detect landmarks');

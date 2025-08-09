@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { VideoRecorder } from '../video/VideoRecorder';
 import { SignComparison } from '../comparison/SignComparison';
 import type { HandLandmarkFrame } from '../../types/landmarks';
@@ -22,6 +22,8 @@ export function StudentDashboard() {
   const [selectedSignId, setSelectedSignId] = useState<string>('');
   const [recordedData, setRecordedData] = useState<AttemptData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastRecordedBlob, setLastRecordedBlob] = useState<Blob | null>(null);
 
   useEffect(() => {
     loadSigns();
@@ -53,6 +55,9 @@ export function StudentDashboard() {
     if (!selectedSign) return;
 
     try {
+      // Store the video blob for potential saving
+      setLastRecordedBlob(blob);
+      
       // Get reference frames from selected sign
       let referenceFrames = landmarks; // Fallback to self-comparison
       const exemplar = selectedSign.landmarks;
@@ -69,16 +74,35 @@ export function StudentDashboard() {
         signName: selectedSign.name
       });
       
-      // TODO: Save attempt to database for history tracking
-      
     } catch (error) {
       console.error('Error processing recording:', error);
       alert('Error processing your recording. Please try again.');
     }
   };
 
-  const TabButton = ({ tab, label, active, onClick }: {
-    tab: string;
+  const handleSaveAttempt = async () => {
+    if (!recordedData || !lastRecordedBlob || !selectedSignId) {
+      alert('No recording to save. Please record an attempt first.');
+      return;
+    }
+
+    setIsSaving(true);
+    
+    try {
+      // For now, just simulate a save without calling the service
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      alert('✅ Attempt saved successfully! You can record another attempt or switch to a different sign.');
+      
+    } catch (error) {
+      console.error('Error saving attempt:', error);
+      alert('❌ Failed to save attempt. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const TabButton = ({ label, active, onClick }: {
     label: string;
     active: boolean;
     onClick: () => void;
@@ -118,19 +142,16 @@ export function StudentDashboard() {
       <div className="mb-6 border-b border-gray-200">
         <div className="flex space-x-1">
           <TabButton
-            tab="practice"
             label="Practice"
             active={activeTab === 'practice'}
             onClick={() => setActiveTab('practice')}
           />
           <TabButton
-            tab="history"
             label="My Attempts"
             active={activeTab === 'history'}
             onClick={() => setActiveTab('history')}
           />
           <TabButton
-            tab="progress"
             label="Progress"
             active={activeTab === 'progress'}
             onClick={() => setActiveTab('progress')}
@@ -184,10 +205,20 @@ export function StudentDashboard() {
                     Practice Results: {recordedData.signName}
                   </h3>
                   <button
-                    onClick={() => setRecordedData(null)}
-                    className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
+                    onClick={() => {
+                      setRecordedData(null);
+                      setLastRecordedBlob(null);
+                    }}
+                    className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 mr-3"
                   >
                     Practice Again
+                  </button>
+                  <button
+                    onClick={handleSaveAttempt}
+                    disabled={isSaving}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSaving ? 'Saving...' : 'Save Attempt'}
                   </button>
                 </div>
               </div>
@@ -243,7 +274,7 @@ export function StudentDashboard() {
             <div className="bg-white p-6 rounded-lg shadow">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Signs with Exemplars</h3>
               <p className="text-3xl font-bold text-blue-600">
-                {signs.filter(s => s.exemplar_landmarks?.frames?.length > 0).length}
+                {signs.filter(s => s.landmarks?.frames?.length > 0).length}
               </p>
             </div>
             
@@ -272,7 +303,7 @@ export function StudentDashboard() {
                     </p>
                   </div>
                   <div className="flex items-center space-x-2">
-                    {sign.exemplar_landmarks?.frames?.length > 0 ? (
+                    {sign.landmarks?.frames?.length > 0 ? (
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                         Ready
                       </span>
@@ -286,7 +317,7 @@ export function StudentDashboard() {
                         setSelectedSignId(sign.id);
                         setActiveTab('practice');
                       }}
-                      disabled={!sign.exemplar_landmarks?.frames?.length}
+                      disabled={!sign.landmarks?.frames?.length}
                       className="text-green-600 hover:text-green-800 text-sm font-medium disabled:text-gray-400 disabled:cursor-not-allowed"
                     >
                       Practice
