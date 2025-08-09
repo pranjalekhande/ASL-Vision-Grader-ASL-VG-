@@ -5,6 +5,12 @@ export interface UploadAttemptParams {
   signId: string;
   videoBlob: Blob;
   landmarkData: RecordingData;
+  scores?: {
+    score_shape?: number;
+    score_location?: number;
+    score_movement?: number;
+    heatmap?: any;
+  };
 }
 
 export class SupabaseService {
@@ -12,20 +18,26 @@ export class SupabaseService {
     return `attempts/${type}/${id}`;
   }
 
-  static async uploadAttempt({ signId, videoBlob, landmarkData }: UploadAttemptParams) {
+  static async uploadAttempt({ signId, videoBlob, landmarkData, scores }: UploadAttemptParams) {
     try {
       // Get current user
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) throw userError || new Error('No user found');
 
-      // Create attempt record
+      // Create attempt record with landmark data and scores
+      const insertData = {
+        student_id: user.id,
+        sign_id: signId,
+        landmarks: landmarkData,
+        created_at: new Date().toISOString(),
+        ...(scores || {}) // Include scores if provided
+      };
+      
+      console.log('Inserting attempt with data:', insertData);
+      
       const { data: attempt, error: attemptError } = await supabase
         .from('attempts')
-        .insert({
-          student_id: user.id,
-          sign_id: signId,
-          created_at: new Date().toISOString(),
-        })
+        .insert(insertData)
         .select()
         .single();
 
@@ -108,12 +120,19 @@ export class SupabaseService {
       heatmap?: any;
     }
   ) {
+    console.log('Updating attempt scores:', { attemptId, scores });
+    
     const { error } = await supabase
       .from('attempts')
       .update(scores)
       .eq('id', attemptId);
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error updating scores:', error);
+      throw error;
+    }
+    
+    console.log('Scores updated successfully');
   }
 }
 

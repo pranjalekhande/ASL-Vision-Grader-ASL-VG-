@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import { VideoRecorder } from '../video/VideoRecorder';
 import { SignComparison } from '../comparison/SignComparison';
-import type { HandLandmarkFrame } from '../../types/landmarks';
+import { HeatmapVideoPlayer } from '../visualization/HeatmapVideoPlayer';
+import type { HandLandmarkFrame, RecordingData } from '../../types/landmarks';
 import { supabase } from '../../config/supabase';
+import { SupabaseService } from '../../services/supabase';
+import { useSignComparison } from '../../hooks/useSignComparison';
 
 interface Sign {
   id: string;
@@ -24,10 +27,22 @@ export function StudentDashboard() {
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [lastRecordedBlob, setLastRecordedBlob] = useState<Blob | null>(null);
+  const [attempts, setAttempts] = useState<any[]>([]);
+  const [loadingAttempts, setLoadingAttempts] = useState(false);
+  const [selectedAttempt, setSelectedAttempt] = useState<any | null>(null);
+  const [showHeatmapViewer, setShowHeatmapViewer] = useState(false);
+  
+  const { compareSign } = useSignComparison();
 
   useEffect(() => {
     loadSigns();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      loadAttempts();
+    }
+  }, [activeTab]);
 
   const loadSigns = async () => {
     try {
@@ -47,6 +62,41 @@ export function StudentDashboard() {
       console.error('Error loading signs:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadAttempts = async () => {
+    setLoadingAttempts(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('attempts')
+        .select(`
+          id,
+          created_at,
+          video_url,
+          score_shape,
+          score_location,
+          score_movement,
+          heatmap,
+          landmarks,
+          signs(name)
+        `)
+        .eq('student_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error loading attempts:', error);
+        return;
+      }
+
+      setAttempts(data || []);
+    } catch (error) {
+      console.error('Error loading attempts:', error);
+    } finally {
+      setLoadingAttempts(false);
     }
   };
 
@@ -89,10 +139,83 @@ export function StudentDashboard() {
     setIsSaving(true);
     
     try {
-      // For now, just simulate a save without calling the service
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Convert recorded data to the format expected by SupabaseService
+      const recordingData: RecordingData = {
+        startTime: Date.now() - (recordedData.studentFrames.length * 100),
+        endTime: Date.now(),
+        duration: recordedData.studentFrames.length * 100,
+        frameRate: 10,
+        frames: recordedData.studentFrames,
+        metadata: {
+          width: 1280,
+          height: 720,
+          frameCount: recordedData.studentFrames.length
+        }
+      };
+
+      // Get reference sign data for comparison
+      const selectedSign = signs.find(s => s.id === selectedSignId);
+      let scores = null;
       
-      alert('✅ Attempt saved successfully! You can record another attempt or switch to a different sign.');
+      if (selectedSign && selectedSign.landmarks?.frames?.length > 0) {
+        try {
+          // Create exemplar data from reference sign
+          const exemplarData: RecordingData = {
+            startTime: 0,
+            endTime: selectedSign.landmarks.frames.length * 100,
+            duration: selectedSign.landmarks.frames.length * 100,
+            frameRate: 10,
+            frames: selectedSign.landmarks.frames,
+            metadata: {
+              width: 1280,
+              height: 720,
+              frameCount: selectedSign.landmarks.frames.length
+            }
+          };
+
+          // Calculate DTW scores
+          console.log('Calculating DTW scores...');
+          const comparison = await compareSign(recordingData, exemplarData);
+          console.log('Raw comparison result:', comparison);
+          
+          scores = {
+            score_shape: Math.round(comparison.handshapeScore * 100) / 100,
+            score_location: Math.round(comparison.locationScore * 100) / 100,
+            score_movement: Math.round(comparison.movementScore * 100) / 100,
+            heatmap: comparison.heatmap
+          };
+          
+          console.log('DTW Scores calculated:', scores);
+        } catch (scoreError) {
+          console.error('Error calculating scores:', scoreError);
+          // Continue with save even if scoring fails
+        }
+      }
+
+      // Save attempt to database with real service (including scores)
+      console.log('Saving attempt to database with scores...');
+      const attempt = await SupabaseService.uploadAttempt({
+        signId: selectedSignId,
+        videoBlob: lastRecordedBlob,
+        landmarkData: recordingData,
+        scores: scores || undefined // Include scores in initial save
+      });
+      console.log('Attempt saved with scores:', attempt);
+      
+      const scoreMessage = scores 
+        ? `\n🎯 Scores: Shape ${scores.score_shape}%, Location ${scores.score_location}%, Movement ${scores.score_movement}%`
+        : '';
+      
+      alert(`✅ Attempt saved successfully! Check your history to see it.${scoreMessage}`);
+      
+      // Clear the current recording after successful save
+      setRecordedData(null);
+      setLastRecordedBlob(null);
+      
+      // Refresh attempts if on history tab
+      if (activeTab === 'history') {
+        loadAttempts();
+      }
       
     } catch (error) {
       console.error('Error saving attempt:', error);
@@ -100,6 +223,11 @@ export function StudentDashboard() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleViewAttempt = (attempt: any) => {
+    setSelectedAttempt(attempt);
+    setShowHeatmapViewer(true);
   };
 
   const TabButton = ({ label, active, onClick }: {
@@ -243,21 +371,98 @@ export function StudentDashboard() {
       )}
 
       {activeTab === 'history' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Practice History</h3>
-          <p className="text-gray-600">
-            Your practice history will appear here. This feature will show:
-          </p>
-          <ul className="mt-4 list-disc list-inside text-gray-600 space-y-1">
-            <li>Recent practice sessions</li>
-            <li>Scores for each attempt</li>
-            <li>Signs you've practiced</li>
-            <li>Improvement over time</li>
-          </ul>
-          <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-            <p className="text-sm text-blue-800">
-              💡 <strong>Coming soon:</strong> We'll track your attempts automatically and show your progress here.
-            </p>
+        <div className="bg-white rounded-lg shadow">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-gray-900">Practice History</h3>
+              <button
+                onClick={loadAttempts}
+                disabled={loadingAttempts}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loadingAttempts ? 'Loading...' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+          
+          <div className="p-6">
+            {loadingAttempts ? (
+              <div className="text-center py-8">
+                <div className="text-gray-500">Loading your attempts...</div>
+              </div>
+            ) : attempts.length === 0 ? (
+              <div className="text-center py-8">
+                <div className="text-gray-500 mb-2">No attempts yet</div>
+                <p className="text-sm text-gray-400">
+                  Practice some signs and your attempts will appear here!
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {attempts.map((attempt) => (
+                  <div key={attempt.id} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <h4 className="font-medium text-gray-900">
+                          {attempt.signs?.name || 'Unknown Sign'}
+                        </h4>
+                        <p className="text-sm text-gray-500">
+                          {new Date(attempt.created_at).toLocaleDateString()} at {new Date(attempt.created_at).toLocaleTimeString()}
+                        </p>
+                      </div>
+                      <div className="flex space-x-3">
+                        {attempt.video_url && (
+                          <a
+                            href={attempt.video_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800 text-sm"
+                          >
+                            View Video
+                          </a>
+                        )}
+                        {attempt.video_url && attempt.heatmap && attempt.landmarks && (
+                          <button
+                            onClick={() => handleViewAttempt(attempt)}
+                            className="text-green-600 hover:text-green-800 text-sm font-medium"
+                          >
+                            View Heatmap
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Scores */}
+                    {(attempt.score_shape || attempt.score_location || attempt.score_movement) ? (
+                      <div className="grid grid-cols-3 gap-4 mt-3">
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-green-600">
+                            {attempt.score_shape ? `${attempt.score_shape}%` : 'N/A'}
+                          </div>
+                          <div className="text-xs text-gray-500">Shape</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-blue-600">
+                            {attempt.score_location ? `${attempt.score_location}%` : 'N/A'}
+                          </div>
+                          <div className="text-xs text-gray-500">Location</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-2xl font-bold text-purple-600">
+                            {attempt.score_movement ? `${attempt.score_movement}%` : 'N/A'}
+                          </div>
+                          <div className="text-xs text-gray-500">Movement</div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-500 italic">
+                        No scores available
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -280,8 +485,8 @@ export function StudentDashboard() {
             
             <div className="bg-white p-6 rounded-lg shadow">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Practice Sessions</h3>
-              <p className="text-3xl font-bold text-purple-600">0</p>
-              <p className="text-sm text-gray-500">Coming soon</p>
+              <p className="text-3xl font-bold text-purple-600">{attempts.length}</p>
+              <p className="text-sm text-gray-500">Total attempts</p>
             </div>
           </div>
 
@@ -325,6 +530,79 @@ export function StudentDashboard() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Heatmap Viewer Modal */}
+      {showHeatmapViewer && selectedAttempt && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">
+                    Heatmap Analysis: {selectedAttempt.signs?.name || 'Unknown Sign'}
+                  </h3>
+                  <p className="text-gray-600">
+                    {new Date(selectedAttempt.created_at).toLocaleDateString()} at{' '}
+                    {new Date(selectedAttempt.created_at).toLocaleTimeString()}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowHeatmapViewer(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {/* Score Summary */}
+              {(selectedAttempt.score_shape || selectedAttempt.score_location || selectedAttempt.score_movement) && (
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  <div className="text-center p-4 bg-green-50 rounded-lg">
+                    <p className="text-2xl font-bold text-green-600">
+                      {selectedAttempt.score_shape ? `${selectedAttempt.score_shape}%` : 'N/A'}
+                    </p>
+                    <p className="text-sm text-green-800">Shape Accuracy</p>
+                  </div>
+                  <div className="text-center p-4 bg-blue-50 rounded-lg">
+                    <p className="text-2xl font-bold text-blue-600">
+                      {selectedAttempt.score_location ? `${selectedAttempt.score_location}%` : 'N/A'}
+                    </p>
+                    <p className="text-sm text-blue-800">Location Accuracy</p>
+                  </div>
+                  <div className="text-center p-4 bg-purple-50 rounded-lg">
+                    <p className="text-2xl font-bold text-purple-600">
+                      {selectedAttempt.score_movement ? `${selectedAttempt.score_movement}%` : 'N/A'}
+                    </p>
+                    <p className="text-sm text-purple-800">Movement Accuracy</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Heatmap Video Player */}
+              {selectedAttempt.video_url && selectedAttempt.heatmap && selectedAttempt.landmarks && (
+                <HeatmapVideoPlayer
+                  videoUrl={selectedAttempt.video_url}
+                  heatmapData={selectedAttempt.heatmap || []}
+                  landmarkData={selectedAttempt.landmarks?.frames || []}
+                  showLandmarks={true}
+                  className="w-full"
+                />
+              )}
+
+              {(!selectedAttempt.video_url || !selectedAttempt.heatmap || !selectedAttempt.landmarks) && (
+                <div className="text-center py-8 text-gray-500">
+                  <p>Heatmap data not available for this attempt</p>
+                  <p className="text-sm">This may be an older recording before heatmap generation was implemented.</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

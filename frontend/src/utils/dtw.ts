@@ -187,7 +187,7 @@ export function compareLandmarkSequences(
     ...dtwOptions
   } = options;
 
-  // Get detailed scores
+  // Get detailed scores (which already includes gesture type penalty)
   const { handshapeScore, locationScore, movementScore } = calculateDetailedScores(
     sequence1,
     sequence2,
@@ -195,10 +195,14 @@ export function compareLandmarkSequences(
   );
 
   // Calculate weighted final score
-  const finalScore = 
+  let finalScore = 
     handshapeWeight * handshapeScore +
     movementWeight * ((locationScore + movementScore) / 2) +
     timingWeight * (100 - Math.abs(sequence1.length - sequence2.length) / Math.max(sequence1.length, sequence2.length) * 100);
+
+  // Apply additional gesture mismatch penalty to overall score
+  const gestureTypePenalty = calculateGestureTypePenalty(sequence1, sequence2);
+  finalScore *= (1 - gestureTypePenalty);
 
   // Ensure score is between 0 and 100
   return Math.max(0, Math.min(100, finalScore));
@@ -268,7 +272,140 @@ export function generateHeatmap(
 }
 
 /**
- * Calculate specific scores for handshape, location, and movement
+ * Analyze gesture characteristics to detect gesture type
+ */
+function analyzeGestureType(sequence: HandLandmarkFrame[]): {
+  isThumbsUp: boolean;
+  isWave: boolean;
+  isStationary: boolean;
+  fingersExtended: number[];
+} {
+  if (!sequence || sequence.length === 0) {
+    return { isThumbsUp: false, isWave: false, isStationary: true, fingersExtended: [] };
+  }
+
+  let avgThumbExtension = 0;
+  let avgFingersClosed = 0;
+  let movementVariance = 0;
+  let waveMovement = 0;
+  
+  const validFrames = sequence.filter(frame => 
+    frame?.landmarks?.[0]?.length === 21
+  );
+  
+  if (validFrames.length === 0) {
+    return { isThumbsUp: false, isWave: false, isStationary: true, fingersExtended: [] };
+  }
+
+  validFrames.forEach((frame, index) => {
+    const landmarks = frame.landmarks[0];
+    
+    // Check thumb extension (landmark 4 relative to landmark 0)
+    const thumbTip = landmarks[4];
+    const wrist = landmarks[0];
+    const thumbExtension = Math.abs(thumbTip.y - wrist.y);
+    avgThumbExtension += thumbExtension;
+    
+    // Check if other fingers are closed (compare fingertips to middle joints)
+    const fingersClosed = [
+      landmarks[8].y > landmarks[6].y, // Index finger
+      landmarks[12].y > landmarks[10].y, // Middle finger  
+      landmarks[16].y > landmarks[14].y, // Ring finger
+      landmarks[20].y > landmarks[18].y  // Pinky
+    ].filter(Boolean).length;
+    
+    avgFingersClosed += fingersClosed;
+    
+    // Calculate hand movement (wrist position variance)
+    if (index > 0) {
+      const prevWrist = validFrames[index - 1].landmarks[0][0];
+      const currentWrist = landmarks[0];
+      const movement = euclideanDistance(prevWrist, currentWrist);
+      movementVariance += movement;
+      
+      // Check for side-to-side wave motion
+      const lateralMovement = Math.abs(currentWrist.x - prevWrist.x);
+      if (lateralMovement > 0.02) waveMovement += 1;
+    }
+  });
+  
+  avgThumbExtension /= validFrames.length;
+  avgFingersClosed /= validFrames.length;
+  movementVariance /= Math.max(validFrames.length - 1, 1);
+  
+  // More lenient thresholds for better detection
+  const isThumbsUp = avgThumbExtension > 0.05 && avgFingersClosed >= 2.5;
+  const isWave = waveMovement > validFrames.length * 0.2 || movementVariance > 0.008;
+  const isStationary = movementVariance < 0.008;
+  
+  // Debug logging for gesture detection
+  console.log('Gesture Detection Details:', {
+    avgThumbExtension,
+    avgFingersClosed,
+    movementVariance,
+    waveMovement,
+    waveMovementRatio: waveMovement / validFrames.length,
+    isThumbsUp,
+    isWave,
+    isStationary,
+    frameCount: validFrames.length
+  });
+  
+  return {
+    isThumbsUp,
+    isWave, 
+    isStationary,
+    fingersExtended: [] // Could be enhanced later
+  };
+}
+
+/**
+ * Calculate gesture similarity penalty based on gesture type mismatch
+ */
+function calculateGestureTypePenalty(
+  sequence1: HandLandmarkFrame[],
+  sequence2: HandLandmarkFrame[]
+): number {
+  const gesture1 = analyzeGestureType(sequence1);
+  const gesture2 = analyzeGestureType(sequence2);
+  
+  console.log('Penalty Calculation:', {
+    gesture1: { isThumbsUp: gesture1.isThumbsUp, isWave: gesture1.isWave, isStationary: gesture1.isStationary },
+    gesture2: { isThumbsUp: gesture2.isThumbsUp, isWave: gesture2.isWave, isStationary: gesture2.isStationary }
+  });
+  
+  // Heavy penalty for completely different gesture types
+  if (gesture1.isThumbsUp && gesture2.isWave) {
+    console.log('Applied 50% penalty: Thumbs up vs Wave');
+    return 0.5; // 50% penalty - increased
+  }
+  if (gesture1.isWave && gesture2.isThumbsUp) {
+    console.log('Applied 50% penalty: Wave vs Thumbs up');
+    return 0.5; // 50% penalty - increased
+  }
+  
+  // Medium penalty for movement vs stationary mismatch
+  if (gesture1.isStationary !== gesture2.isStationary) {
+    console.log('Applied 25% penalty: Movement vs Stationary mismatch');
+    return 0.25; // 25% penalty - increased
+  }
+  
+  // Small penalty for other mismatches
+  if (gesture1.isThumbsUp !== gesture2.isThumbsUp) {
+    console.log('Applied 15% penalty: Thumbs up mismatch');
+    return 0.15; // 15% penalty - increased
+  }
+  if (gesture1.isWave !== gesture2.isWave) {
+    console.log('Applied 15% penalty: Wave mismatch');
+    return 0.15; // 15% penalty - increased
+  }
+  
+  console.log('No penalty applied: Gestures match');
+  return 0; // No penalty for similar gesture types
+}
+
+/**
+ * Calculate specific scores for handshape, location, and movement with gesture type validation
  */
 export function calculateDetailedScores(
   sequence1: HandLandmarkFrame[],
@@ -367,11 +504,29 @@ export function calculateDetailedScores(
     totalLocationDistance += locationDistance;
   });
 
+  // Calculate gesture type penalty
+  const gestureTypePenalty = calculateGestureTypePenalty(sequence1, sequence2);
+  
   // Convert distances to scores (0-100)
-  const handshapeScore = 100 * Math.exp(-totalHandshapeDistance / basePath.length);
-  const locationScore = 100 * Math.exp(-totalLocationDistance / basePath.length);
+  let handshapeScore = 100 * Math.exp(-totalHandshapeDistance / basePath.length);
+  let locationScore = 100 * Math.exp(-totalLocationDistance / basePath.length);
   const movementDenominator = Math.max(1, basePath.length - 1);
-  const movementScore = 100 * Math.exp(-totalMovementDistance / movementDenominator);
+  let movementScore = 100 * Math.exp(-totalMovementDistance / movementDenominator);
+
+  // Apply gesture type penalty to all scores
+  handshapeScore *= (1 - gestureTypePenalty);
+  locationScore *= (1 - gestureTypePenalty);
+  movementScore *= (1 - gestureTypePenalty);
+
+  // Add debug logging for gesture analysis
+  const gesture1 = analyzeGestureType(sequence1);
+  const gesture2 = analyzeGestureType(sequence2);
+  console.log('Gesture Analysis:', {
+    recorded: gesture1,
+    exemplar: gesture2,
+    penalty: gestureTypePenalty,
+    scores: { handshapeScore, locationScore, movementScore }
+  });
 
   return {
     handshapeScore: Math.max(0, Math.min(100, handshapeScore)),
