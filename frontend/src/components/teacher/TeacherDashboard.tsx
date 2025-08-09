@@ -55,6 +55,7 @@ export function TeacherDashboard() {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       console.log('Current user:', user);
       console.log('User error:', userError);
+
       // Load signs
       const { data: signsData } = await supabase
         .from('signs')
@@ -163,9 +164,6 @@ export function TeacherDashboard() {
         
         console.log('Students with stats calculated:', studentsWithStats);
         setStudents(studentsWithStats);
-      } else {
-        console.log('No students found in database');
-        setStudents([]);
       }
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
@@ -185,29 +183,6 @@ export function TeacherDashboard() {
     setShowStudentDetail(true);
   };
 
-  // Temporary helper function for testing - creates a demo student entry
-  const createTestStudent = async () => {
-    try {
-      // Check if we can modify the current user's role for testing
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        console.log('Creating test student data...');
-        
-        // Note: In a real app, you'd create a separate student account
-        // For now, we'll show instructions in the console
-        console.log('To test student functionality:');
-        console.log('1. Sign out from teacher account');
-        console.log('2. Create a new account');
-        console.log('3. Set the role to "student" in the database');
-        console.log('4. Record some practice attempts');
-        console.log('5. Switch back to teacher account to view data');
-        
-        alert('Check console for instructions on testing student functionality');
-      }
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  };
 
   const calculateOverallScore = (attempt: StudentAttempt) => {
     if (!attempt.score_shape || !attempt.score_location || !attempt.score_movement) {
@@ -303,34 +278,18 @@ export function TeacherDashboard() {
             <div className="md:col-span-3 bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Recent Activity</h3>
               <div className="space-y-3">
-                {students.length > 0 ? (
-                  students.slice(0, 5).map(student => (
-                    <div key={student.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
-                      <div>
-                        <p className="font-medium text-gray-900">{student.full_name}</p>
-                        <p className="text-sm text-gray-500">{student.total_attempts} practice attempts</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-medium text-gray-900">{student.avg_score}%</p>
-                        <p className="text-sm text-gray-500">Average score</p>
-                      </div>
+                {students.slice(0, 5).map(student => (
+                  <div key={student.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                    <div>
+                      <p className="font-medium text-gray-900">{student.full_name}</p>
+                      <p className="text-sm text-gray-500">{student.total_attempts} practice attempts</p>
                     </div>
-                  ))
-                ) : (
-                  <div className="text-center py-8 text-gray-500">
-                    <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-                    </svg>
-                    <h3 className="mt-2 text-sm font-medium text-gray-900">No students yet</h3>
-                    <p className="mt-1 text-sm text-gray-500">Students need to sign up with role "student" to appear here.</p>
-                    <div className="mt-4 text-xs text-gray-400">
-                      <p>To test student features:</p>
-                      <p>1. Create a new account with role: "student"</p>
-                      <p>2. Record some practice attempts</p>
-                      <p>3. View them here in the teacher dashboard</p>
+                    <div className="text-right">
+                      <p className="font-medium text-gray-900">{student.avg_score}%</p>
+                      <p className="text-sm text-gray-500">Average score</p>
                     </div>
                   </div>
-                )}
+                ))}
               </div>
             </div>
           </div>
@@ -404,17 +363,11 @@ export function TeacherDashboard() {
         {currentView === 'students' && (
           <div className="bg-white rounded-lg shadow">
             <div className="p-6 border-b">
-              <div className="flex justify-between items-center">
-                <h3 className="text-lg font-medium text-gray-900">Student Progress</h3>
-                <div className="text-sm text-gray-500">
-                  {students.length} student{students.length !== 1 ? 's' : ''} enrolled
-                </div>
-              </div>
+              <h3 className="text-lg font-medium text-gray-900">Student Progress</h3>
             </div>
             
-            {students.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -431,9 +384,6 @@ export function TeacherDashboard() {
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Joined
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
                     </th>
                   </tr>
                 </thead>
@@ -476,32 +426,6 @@ export function TeacherDashboard() {
                 </tbody>
               </table>
             </div>
-            ) : (
-              <div className="p-12 text-center">
-                <svg className="mx-auto h-16 w-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-                </svg>
-                <h3 className="mt-4 text-lg font-medium text-gray-900">No Students Enrolled</h3>
-                <p className="mt-2 text-sm text-gray-500">
-                  When students sign up and start practicing, their progress will appear here.
-                </p>
-                <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-                  <h4 className="text-sm font-medium text-blue-900">How to get students started:</h4>
-                  <ol className="mt-2 text-sm text-blue-700 list-decimal list-inside space-y-1">
-                    <li>Students create accounts with role "student"</li>
-                    <li>They can practice any available signs</li>
-                    <li>Their attempts and scores will be tracked here</li>
-                    <li>Click "View Details" to see individual progress</li>
-                  </ol>
-                  <button
-                    onClick={createTestStudent}
-                    className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700"
-                  >
-                    Show Testing Instructions
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -616,7 +540,7 @@ export function TeacherDashboard() {
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Most Practiced Signs</h3>
               <div className="space-y-3">
-                {signs.slice(0, 5).map((sign) => (
+                {signs.slice(0, 5).map(sign => (
                   <div key={sign.id} className="flex items-center justify-between">
                     <span className="text-gray-900">{sign.name}</span>
                     <div className="flex items-center space-x-2">
