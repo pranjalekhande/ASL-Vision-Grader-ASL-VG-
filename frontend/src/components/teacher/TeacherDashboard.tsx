@@ -48,6 +48,25 @@ export function TeacherDashboard() {
     loadDashboardData();
   }, []);
 
+  const fixTeacherRole = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      // Update the profile role to teacher
+      const { error } = await supabase
+        .from('profiles')
+        .update({ role: 'teacher' })
+        .eq('id', user.id);
+      
+      if (error) {
+        console.error('Failed to update role:', error);
+      } else {
+        console.log('Successfully updated role to teacher');
+        // Reload the page to refresh the session
+        window.location.reload();
+      }
+    }
+  };
+
   const loadDashboardData = async () => {
     setLoading(true);
     try {
@@ -242,6 +261,17 @@ export function TeacherDashboard() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Temporary fix for role */}
+        <div className="mb-4 bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
+          <p className="text-yellow-800">If you're seeing no students, your role might be incorrect.</p>
+          <button
+            onClick={fixTeacherRole}
+            className="mt-2 px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700"
+          >
+            Fix Teacher Role
+          </button>
+        </div>
+
         {/* Navigation */}
         <div className="flex space-x-4 mb-8">
           <NavButton view="overview">Overview</NavButton>
