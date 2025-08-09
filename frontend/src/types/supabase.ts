@@ -37,8 +37,8 @@ export interface Database {
       signs: {
         Row: {
           id: string;
-          gloss: string;
-          exemplar_landmarks: Json;
+          name: string;
+          landmarks: Json;
           difficulty: number | null;
           tags: string[] | null;
           created_by: string | null;
@@ -47,8 +47,8 @@ export interface Database {
         };
         Insert: {
           id?: string;
-          gloss: string;
-          exemplar_landmarks: Json;
+          name: string;
+          landmarks: Json;
           difficulty?: number | null;
           tags?: string[] | null;
           created_by?: string | null;
@@ -57,8 +57,8 @@ export interface Database {
         };
         Update: {
           id?: string;
-          gloss?: string;
-          exemplar_landmarks?: Json;
+          name?: string;
+          landmarks?: Json;
           difficulty?: number | null;
           tags?: string[] | null;
           created_by?: string | null;

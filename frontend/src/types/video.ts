@@ -1,6 +1,6 @@
 export interface VideoRecorderProps {
-  maxDuration?: number; // in seconds
-  onRecordingComplete?: (blob: Blob) => void;
+  maxDuration?: number;
+  onRecordingComplete?: (blob: Blob, landmarks: import('./landmarks').HandLandmarkFrame[]) => void;
   width?: number;
   height?: number;
 }

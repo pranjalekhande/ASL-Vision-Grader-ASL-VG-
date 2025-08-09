@@ -1,188 +1,107 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { supabase } from '../../config/supabase';
 
-interface TestResult {
-  type: 'video' | 'landmark';
-  status: 'success' | 'error';
-  url?: string;
-  error?: string;
-}
+export const StorageTest: React.FC = () => {
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
 
-export function StorageTest() {
-  const [results, setResults] = useState<TestResult[]>([]);
-
-  // Test video upload
-  const handleVideoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      // Upload video
-      const fileName = `test-video-${Date.now()}.${file.name.split('.').pop()}`;
-      console.log('Uploading video:', fileName);
-
-      const { data: videoData, error: videoError } = await supabase.storage
-        .from('videos')
-        .upload(fileName, file);
-
-      if (videoError) throw videoError;
-
-      // Get video URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('videos')
-        .getPublicUrl(fileName);
-
-      setResults(prev => [...prev, {
-        type: 'video',
-        status: 'success',
-        url: publicUrl
-      }]);
-
-    } catch (err) {
-      console.error('Video upload error:', err);
-      setResults(prev => [...prev, {
-        type: 'video',
-        status: 'error',
-        error: err instanceof Error ? err.message : 'Video upload failed'
-      }]);
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
+      setError(null);
+      setUploadedUrl(null);
     }
   };
 
-  // Test landmark data upload
-  const handleLandmarkTest = async () => {
+  const handleUpload = async () => {
+    if (!file) {
+      setError('Please select a file first');
+      return;
+    }
+
     try {
-      // Create sample landmark data
-      const sampleData = {
-        timestamp: Date.now(),
-        landmarks: [
-          { x: 0.5, y: 0.5, z: 0 },
-          { x: 0.6, y: 0.6, z: 0 }
-        ]
-      };
+      setUploading(true);
+      setError(null);
 
-      const fileName = `test-landmarks-${Date.now()}.json`;
-      console.log('Uploading landmarks:', fileName);
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const filePath = `${fileName}`;
 
-      const { data: landmarkData, error: landmarkError } = await supabase.storage
-        .from('landmarks')
-        .upload(fileName, JSON.stringify(sampleData), {
-          contentType: 'application/json'
-        });
+      const { error: uploadError, data } = await supabase.storage
+        .from('videos')
+        .upload(filePath, file);
 
-      if (landmarkError) throw landmarkError;
+      if (uploadError) {
+        throw uploadError;
+      }
 
-      // Get landmark URL
       const { data: { publicUrl } } = supabase.storage
-        .from('landmarks')
-        .getPublicUrl(fileName);
+        .from('videos')
+        .getPublicUrl(filePath);
 
-      setResults(prev => [...prev, {
-        type: 'landmark',
-        status: 'success',
-        url: publicUrl
-      }]);
-
+      setUploadedUrl(publicUrl);
     } catch (err) {
-      console.error('Landmark upload error:', err);
-      setResults(prev => [...prev, {
-        type: 'landmark',
-        status: 'error',
-        error: err instanceof Error ? err.message : 'Landmark upload failed'
-      }]);
+      setError(err instanceof Error ? err.message : 'Failed to upload file');
+    } finally {
+      setUploading(false);
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-8">
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-2xl font-bold mb-6">Storage Tests</h2>
-
-        {/* Video Upload Test */}
-        <div className="mb-8">
-          <h3 className="text-lg font-semibold mb-4">Test Video Upload</h3>
-          <input
-            type="file"
-            accept="video/*"
-            onChange={handleVideoUpload}
-            className="block w-full text-sm text-gray-500
-              file:mr-4 file:py-2 file:px-4
-              file:rounded-md file:border-0
-              file:text-sm file:font-semibold
-              file:bg-blue-50 file:text-blue-700
-              hover:file:bg-blue-100"
-          />
+    <div className="bg-white rounded-lg shadow-md p-6">
+      <h2 className="text-xl font-semibold mb-4">Storage Test</h2>
+      
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700">
+            Select File
+            <input
+              type="file"
+              onChange={handleFileChange}
+              className="mt-1 block w-full text-sm text-gray-500
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-full file:border-0
+                file:text-sm file:font-semibold
+                file:bg-blue-50 file:text-blue-700
+                hover:file:bg-blue-100"
+            />
+          </label>
         </div>
 
-        {/* Landmark Upload Test */}
-        <div className="mb-8">
-          <h3 className="text-lg font-semibold mb-4">Test Landmark Upload</h3>
-          <button
-            onClick={handleLandmarkTest}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-          >
-            Upload Sample Landmarks
-          </button>
-        </div>
+        <button
+          onClick={handleUpload}
+          disabled={!file || uploading}
+          className={`w-full px-4 py-2 text-sm font-medium text-white rounded-md
+            ${!file || uploading
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-blue-600 hover:bg-blue-700'
+            }`}
+        >
+          {uploading ? 'Uploading...' : 'Upload'}
+        </button>
 
-        {/* Results */}
-        {results.length > 0 && (
-          <div className="mt-8">
-            <h3 className="text-lg font-semibold mb-4">Test Results</h3>
-            <div className="space-y-4">
-              {results.map((result, index) => (
-                <div
-                  key={index}
-                  className={`p-4 rounded-md ${
-                    result.status === 'success'
-                      ? 'bg-green-50 border border-green-200'
-                      : 'bg-red-50 border border-red-200'
-                  }`}
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <span className="font-medium">
-                        {result.type === 'video' ? 'Video Upload' : 'Landmark Upload'}
-                      </span>
-                      <span
-                        className={`ml-2 px-2 py-1 text-xs rounded ${
-                          result.status === 'success'
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}
-                      >
-                        {result.status.toUpperCase()}
-                      </span>
-                    </div>
-                    {result.url && (
-                      <a
-                        href={result.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        View File
-                      </a>
-                    )}
-                  </div>
-                  {result.error && (
-                    <p className="mt-2 text-sm text-red-600">{result.error}</p>
-                  )}
-                  {result.url && result.type === 'video' && (
-                    <video
-                      src={result.url}
-                      controls
-                      className="mt-4 w-full rounded"
-                      style={{ maxHeight: '200px' }}
-                    >
-                      Your browser does not support the video tag.
-                    </video>
-                  )}
-                </div>
-              ))}
-            </div>
+        {error && (
+          <div className="text-red-500 text-sm">
+            {error}
+          </div>
+        )}
+
+        {uploadedUrl && (
+          <div className="mt-4">
+            <h3 className="text-lg font-medium mb-2">Uploaded File:</h3>
+            <a
+              href={uploadedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-800 break-all"
+            >
+              {uploadedUrl}
+            </a>
           </div>
         )}
       </div>
     </div>
   );
-}
+};

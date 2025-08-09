@@ -4,10 +4,17 @@ export interface TimestampedLandmark extends Landmark {
   timestamp: number;
 }
 
+export interface HandLandmark {
+  x: number;
+  y: number;
+  z: number;
+  confidence?: number;
+}
+
 export interface HandLandmarkFrame {
   timestamp: number;
-  landmarks: TimestampedLandmark[][];
-  handedness: Category[][];
+  landmarks: HandLandmark[][];  // Array of hands, each hand is an array of landmarks
+  handedness: ('Left' | 'Right')[];  // Handedness for each detected hand
 }
 
 export interface RecordingData {
@@ -53,11 +60,15 @@ export class LandmarkDataCollector implements LandmarkProcessor {
       timestamp,
       landmarks: result.landmarks.map(handLandmarks =>
         handLandmarks.map(landmark => ({
-          ...landmark,
-          timestamp
+          x: landmark.x,
+          y: landmark.y,
+          z: landmark.z,
+          confidence: Math.max(0, Math.min(1, (landmark.visibility ?? 1)))
         }))
       ),
-      handedness: result.handednesses || []
+      handedness: result.handednesses?.map(hand => 
+        hand[0]?.categoryName as 'Left' | 'Right'
+      ) || []
     };
 
     this.frames.push(frame);

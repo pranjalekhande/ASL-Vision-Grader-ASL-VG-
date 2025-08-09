@@ -15,151 +15,88 @@ export const useVideoRecorder = (maxDuration: number = 7) => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
-  const dataAvailablePromiseRef = useRef<Promise<void> | null>(null);
-  const dataAvailableResolveRef = useRef<(() => void) | null>(null);
 
-  // Initialize camera stream immediately
-  useEffect(() => {
-    const initializeCamera = async () => {
-      try {
-        const mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: DEFAULT_CONSTRAINTS,
-          audio: false,
-        });
-        console.log('Camera initialized successfully');
-        setStream(mediaStream);
-      } catch (err) {
-        console.error('Camera initialization error:', err);
-        setError(err instanceof Error ? err.message : 'Failed to access camera');
-      }
-    };
-
-    initializeCamera();
-
-    // Cleanup function
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => {
-          track.stop();
-          stream.removeTrack(track);
-        });
-        setStream(null);
-      }
-      // Clean up any existing recorder
-      if (mediaRecorderRef.current) {
-        if (mediaRecorderRef.current.state !== 'inactive') {
-          mediaRecorderRef.current.stop();
-        }
-        mediaRecorderRef.current = null;
-      }
-      // Clear any pending timers
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-      // Reset state
-      setIsRecording(false);
+  // Initialize camera stream
+  const initializeStream = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: DEFAULT_CONSTRAINTS,
+        audio: false
+      });
+      setStream(stream);
       setError(null);
-      chunksRef.current = [];
-      dataAvailableResolveRef.current = null;
-      dataAvailablePromiseRef.current = null;
-    };
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to access camera');
+      setStream(null);
+    }
   }, []);
 
-  const startRecording = useCallback(async () => {
+  // Start recording
+  const startRecording = useCallback(() => {
     if (!stream) {
-      console.error('No stream available');
-      setError('Camera stream not available');
+      setError('No camera stream available');
       return;
     }
 
     try {
-      // Create a new promise that will resolve when we get the first data
-      dataAvailablePromiseRef.current = new Promise((resolve) => {
-        dataAvailableResolveRef.current = resolve;
-      });
-
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'video/webm;codecs=vp8,opus',
-        videoBitsPerSecond: 2500000 // 2.5 Mbps
-      });
+      const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
-          console.log('Received video chunk:', event.data.size, 'bytes');
           chunksRef.current.push(event.data);
-          // Resolve the promise when we get the first chunk
-          if (dataAvailableResolveRef.current) {
-            dataAvailableResolveRef.current();
-            dataAvailableResolveRef.current = null;
-          }
         }
       };
 
-      // Request data every 100ms to ensure smooth recording
-      mediaRecorder.start(100);
-      setIsRecording(true);
-      console.log('Recording started');
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+        setRecordedBlob(blob);
+      };
 
-      // Stop recording after maxDuration
+      mediaRecorder.start();
+      setIsRecording(true);
+      setError(null);
+
+      // Set timer to stop recording after maxDuration
       timerRef.current = window.setTimeout(() => {
-        stopRecording();
+        if (mediaRecorder.state === 'recording') {
+          mediaRecorder.stop();
+          setIsRecording(false);
+        }
       }, maxDuration * 1000);
+
     } catch (err) {
-      console.error('Recording start error:', err);
       setError(err instanceof Error ? err.message : 'Failed to start recording');
     }
-  }, [maxDuration, stream]);
+  }, [stream, maxDuration]);
 
-  const stopRecording = useCallback(async () => {
+  // Stop recording
+  const stopRecording = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
 
-    if (mediaRecorderRef.current && isRecording) {
-      try {
-        // Wait for at least one chunk of data before stopping
-        if (dataAvailablePromiseRef.current) {
-          await dataAvailablePromiseRef.current;
-        }
-
-        // Create a promise that resolves when the recorder stops
-        const stopPromise = new Promise<void>((resolve) => {
-          if (mediaRecorderRef.current) {
-            mediaRecorderRef.current.onstop = () => {
-              const blob = new Blob(chunksRef.current, { 
-                type: 'video/webm'
-              });
-              console.log('Recording completed, blob size:', blob.size);
-              setRecordedBlob(blob);
-              chunksRef.current = []; // Clear chunks after creating blob
-              resolve();
-            };
-          }
-        });
-
-        mediaRecorderRef.current.stop();
-        setIsRecording(false);
-        console.log('Recording stopped');
-
-        // Wait for the stop event to complete
-        await stopPromise;
-      } catch (err) {
-        console.error('Error stopping recording:', err);
-        setError('Failed to stop recording properly');
-      }
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
     }
-  }, [isRecording]);
+  }, []);
 
-  // Clear recorded blob when starting new recording
+  // Initialize stream on mount
   useEffect(() => {
-    if (isRecording) {
-      setRecordedBlob(null);
-    }
-  }, [isRecording]);
+    initializeStream();
+
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [initializeStream]);
 
   return {
     isRecording,
@@ -167,6 +104,6 @@ export const useVideoRecorder = (maxDuration: number = 7) => {
     stream,
     recordedBlob,
     startRecording,
-    stopRecording,
+    stopRecording
   };
 };

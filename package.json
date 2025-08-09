@@ -1,0 +1,25 @@
+{
+  "name": "asl-vg-root",
+  "private": true,
+  "version": "1.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "seed:exemplars": "node scripts/seed-exemplars.js",
+    "fetch:real-exemplars": "node scripts/fetch-real-exemplars.js",
+    "download:wlasl": "node scripts/download-wlasl-data.js",
+    "process:landmarks": "python scripts/process-real-wlasl-videos.py",
+    "generate:realistic": "node scripts/generate-realistic-landmarks.js",
+    "process:real-wlasl": "python3 scripts/process-real-wlasl-videos.py",
+    "install:python-deps": "pip3 install mediapipe opencv-python yt-dlp requests kaggle",
+    "download:kaggle-wlasl": "python3 scripts/download-kaggle-wlasl.py",
+    "create:test-exemplars": "node scripts/create-test-exemplars.js",
+    "upload:landmarks": "node scripts/upload-real-landmarks.js upload",
+    "verify:landmarks": "node scripts/upload-real-landmarks.js verify"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "dotenv": "^16.4.5"
+  }
+}
+
+

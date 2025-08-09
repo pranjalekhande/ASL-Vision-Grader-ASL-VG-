@@ -1,0 +1,17 @@
+{
+  "hello": [
+    {
+      "gloss": "HELLO",
+      "instances": [
+        {
+          "video_id": "sample1",
+          "url": "https://www.youtube.com/watch?v=example1",
+          "start_time": 0,
+          "end_time": 2.5,
+          "signer_id": 1,
+          "variation_id": 0
+        }
+      ]
+    }
+  ]
+}

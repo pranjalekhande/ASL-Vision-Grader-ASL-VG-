@@ -9,13 +9,17 @@ export function useUpload() {
     status: 'idle'
   });
 
+  const [lastUpload, setLastUpload] = useState<UploadResult | null>(null);
+
   const upload = useCallback(async (
     signId: string,
     videoBlob: Blob,
     landmarkData: RecordingData
   ): Promise<UploadResult> => {
     try {
-      return await UploadService.uploadRecording(videoBlob, landmarkData, setProgress);
+      const result = await UploadService.uploadRecording(videoBlob, landmarkData, setProgress);
+      setLastUpload(result);
+      return result;
     } catch (error) {
       console.error('Upload failed:', error);
       throw error;
@@ -28,11 +32,13 @@ export function useUpload() {
       landmarkProgress: 0,
       status: 'idle'
     });
+    setLastUpload(null);
   }, []);
 
   return {
     upload,
     progress,
+    lastUpload,
     reset
   };
 }
