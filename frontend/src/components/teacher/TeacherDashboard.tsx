@@ -4,6 +4,7 @@ import { supabase } from '../../config/supabase';
 import { ReferenceRecorder } from '../signs/ReferenceRecorder';
 import { VideoReviewPlayer } from './VideoReviewPlayer';
 import { TimestampedFeedback } from './TimestampedFeedback';
+import { VideoThumbnailDashboard } from './VideoThumbnailDashboard';
 import { FeedbackService, type FeedbackItem } from '../../services/feedbackService';
 import { 
   calculateOverallScore, 
@@ -176,7 +177,7 @@ export function TeacherDashboard() {
             
             // Calculate comprehensive statistics using utility functions
             const statistics = getScoreStatistics(allAttempts || []);
-            
+
             // Format recent attempts
             const recent_attempts: StudentAttempt[] = recentAttemptsData?.map(attempt => ({
               id: attempt.id,
@@ -289,6 +290,25 @@ export function TeacherDashboard() {
           })
         );
 
+        // Log video URL status for debugging
+        const urlStats = attemptsWithDetails.reduce((stats, attempt) => {
+          if (!attempt.video_url) {
+            stats.null++;
+          } else if (attempt.video_url.trim() === '') {
+            stats.empty++;
+          } else {
+            try {
+              new URL(attempt.video_url);
+              stats.valid++;
+            } catch {
+              stats.invalid++;
+              console.warn('Invalid video URL detected:', attempt.id, attempt.video_url);
+            }
+          }
+          return stats;
+        }, { null: 0, empty: 0, valid: 0, invalid: 0 });
+
+        console.log('Video URL statistics:', urlStats);
         setRecentAttempts(attemptsWithDetails);
       }
     } catch (error) {
@@ -721,7 +741,7 @@ export function TeacherDashboard() {
 
                 {/* Video Review Section */}
                 {!selectedStudentAttempt ? (
-                  <div>
+                <div>
                     <h4 className="text-lg font-semibold mb-4">All Attempts with Video Review</h4>
                     
                     {studentAttempts && studentAttempts.length > 0 ? (
@@ -739,22 +759,22 @@ export function TeacherDashboard() {
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
                             {studentAttempts.map((attempt) => {
-                              const overallScore = calculateOverallScore(attempt);
-                              return (
+                        const overallScore = calculateOverallScore(attempt);
+                        return (
                                 <tr key={attempt.id} className="hover:bg-gray-50">
                                   <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                     {attempt.sign_name}
                                   </td>
                                   <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    {overallScore !== null ? (
+                                {overallScore !== null ? (
                                       <div className="flex flex-col space-y-1">
                                         <span className={`inline-flex px-2 py-1 rounded text-xs font-medium ${
-                                          overallScore >= 80 
-                                            ? 'bg-green-100 text-green-800'
-                                            : overallScore >= 60
-                                            ? 'bg-yellow-100 text-yellow-800'
-                                            : 'bg-red-100 text-red-800'
-                                        }`}>
+                                    overallScore >= 80 
+                                      ? 'bg-green-100 text-green-800'
+                                      : overallScore >= 60
+                                      ? 'bg-yellow-100 text-yellow-800'
+                                      : 'bg-red-100 text-red-800'
+                                  }`}>
                                           Overall: {overallScore}%
                                         </span>
                                         <div className="flex space-x-1 text-xs">
@@ -779,8 +799,8 @@ export function TeacherDashboard() {
                                     {attempt.video_url ? (
                                       <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                         ✓ Available
-                                      </span>
-                                    ) : (
+                                  </span>
+                                ) : (
                                       <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
                                         ✗ Missing
                                       </span>
@@ -814,8 +834,8 @@ export function TeacherDashboard() {
                       <div className="text-center py-8 text-gray-500">
                         <p>Loading student attempts...</p>
                       </div>
-                    )}
-                  </div>
+                                )}
+                              </div>
                 ) : (
                   <div className="space-y-6">
                     {/* Back Button - Prominent */}
@@ -829,10 +849,10 @@ export function TeacherDashboard() {
                         </svg>
                         Back to All Attempts
                       </button>
-                    </div>
-                    
+                            </div>
+
                     {/* Video Review Header */}
-                    <div className="text-center">
+                                <div className="text-center">
                       <h4 className="text-xl font-bold text-gray-900">
                         {selectedStudentAttempt.sign_name} - Video Review
                       </h4>
@@ -851,17 +871,17 @@ export function TeacherDashboard() {
                         <div className="text-center p-4 bg-green-50 rounded-lg">
                           <div className="text-2xl font-bold text-green-600">{formatScore(selectedStudentAttempt.score_location)}</div>
                           <div className="text-sm text-green-800">Location</div>
-                        </div>
+                                </div>
                         <div className="text-center p-4 bg-purple-50 rounded-lg">
                           <div className="text-2xl font-bold text-purple-600">{formatScore(selectedStudentAttempt.score_movement)}</div>
                           <div className="text-sm text-purple-800">Movement</div>
-                        </div>
+                                </div>
                         <div className={`text-center p-4 rounded-lg ${categorizeScore(calculateOverallScore(selectedStudentAttempt)).color}`}>
                           <div className="text-2xl font-bold">{formatScore(calculateOverallScore(selectedStudentAttempt))}</div>
                           <div className="text-sm">Overall</div>
-                        </div>
-                      </div>
-                    )}
+                                </div>
+                              </div>
+                            )}
 
                     {/* Video Player */}
                     {selectedStudentAttempt.video_url && (
@@ -874,7 +894,7 @@ export function TeacherDashboard() {
                             setCurrentVideoTime(timestamp);
                           }}
                         />
-                      </div>
+                          </div>
                     )}
 
                     {/* Feedback Section */}
@@ -898,8 +918,8 @@ export function TeacherDashboard() {
                         }}
                       />
                     </div>
-                  </div>
-                )}
+                    </div>
+                  )}
               </div>
             </div>
           </div>
@@ -940,102 +960,13 @@ export function TeacherDashboard() {
         {currentView === 'video-review' && (
           <div className="space-y-6">
             {!selectedAttempt ? (
-              <div>
-                {/* Recent Attempts List */}
-                <div className="bg-white rounded-lg shadow">
-                  <div className="px-6 py-4 border-b border-gray-200">
-                    <h3 className="text-lg font-medium text-gray-900">Recent Student Attempts</h3>
-                    <p className="text-sm text-gray-600">Click on an attempt to review the video and provide feedback</p>
-                  </div>
-                  
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sign</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scores</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feedback</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {recentAttempts.map((attempt) => (
-                          <tr key={attempt.id} className="hover:bg-gray-50">
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                              {attempt.student_name}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {attempt.sign_name}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {calculateOverallScore(attempt) !== null ? (
-                                <div className="flex space-x-1">
-                                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                                    S: {formatScore(attempt.score_shape)}
-                                  </span>
-                                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
-                                    L: {formatScore(attempt.score_location)}
-                                  </span>
-                                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-purple-100 text-purple-800">
-                                    M: {formatScore(attempt.score_movement)}
-                                  </span>
-                                  <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${categorizeScore(calculateOverallScore(attempt)).color}`}>
-                                    Overall: {formatScore(calculateOverallScore(attempt))}
-                                  </span>
-                                </div>
-                              ) : (
-                                <span className="text-gray-400">No scores</span>
-                              )}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {new Date(attempt.created_at).toLocaleDateString()}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {attempt.video_url ? (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                  ✓ Available
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                                  ✗ Missing
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                                {attempt.feedback_count || 0} comments
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                              <button
-                                onClick={() => setSelectedAttempt(attempt)}
-                                disabled={!attempt.video_url}
-                                className={`${
-                                  attempt.video_url
-                                    ? 'text-blue-600 hover:text-blue-900'
-                                    : 'text-gray-400 cursor-not-allowed'
-                                }`}
-                              >
-                                Review
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  
-                  {recentAttempts.length === 0 && (
-                    <div className="p-6 text-center text-gray-500">
-                      <p>No student attempts found.</p>
-                      <p className="text-sm">Student recordings will appear here for review.</p>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <VideoThumbnailDashboard
+                attempts={recentAttempts}
+                onAttemptSelect={(attempt) => setSelectedAttempt(attempt)}
+                loading={loading}
+                showTrendChart={true}
+                gridSize="medium"
+              />
             ) : (
               <div className="space-y-6">
                 {/* Back button and attempt info */}
@@ -1096,24 +1027,20 @@ export function TeacherDashboard() {
 
                 {/* Feedback Section */}
                 <div className="bg-white rounded-lg shadow p-6">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">Provide Feedback</h3>
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">
+                    Provide Feedback
+                    {loadingFeedback && (
+                      <span className="ml-2 text-sm text-gray-500">(Loading...)</span>
+                    )}
+                  </h3>
                   <TimestampedFeedback
                     attemptId={selectedAttempt.id}
                     videoDuration={0}
                     currentTime={currentVideoTime}
-                    feedbackItems={[]}
-                    onAddFeedback={async (feedback) => {
-                      console.log('Adding feedback:', feedback);
-                      // TODO: Implement feedback saving
-                    }}
-                    onUpdateFeedback={async (id, feedback) => {
-                      console.log('Updating feedback:', id, feedback);
-                      // TODO: Implement feedback updating
-                    }}
-                    onDeleteFeedback={async (id) => {
-                      console.log('Deleting feedback:', id);
-                      // TODO: Implement feedback deletion
-                    }}
+                    feedbackItems={feedbackItems}
+                    onAddFeedback={handleAddFeedback}
+                    onUpdateFeedback={handleUpdateFeedback}
+                    onDeleteFeedback={handleDeleteFeedback}
                     onSeekToTimestamp={(timestamp) => {
                       setCurrentVideoTime(timestamp);
                     }}
