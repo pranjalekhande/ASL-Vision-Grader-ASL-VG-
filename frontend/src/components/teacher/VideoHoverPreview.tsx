@@ -325,11 +325,9 @@ export const VideoHoverPreview: React.FC<VideoHoverPreviewProps> = ({
           height: '240px'
         }}
         onMouseEnter={() => {
-          console.log('🖱️ Mouse entered preview window');
           onMouseEnterPreview?.();
         }}
         onMouseLeave={() => {
-          console.log('🖱️ Mouse left preview window');
           onMouseLeavePreview?.();
         }}
       >

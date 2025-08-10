@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { VideoThumbnail } from './VideoThumbnail';
-import { ScoreTrendChart } from './ScoreTrendChart';
 import { preloadThumbnails } from '../../utils/thumbnailGenerator';
 
 interface VideoFilters {
@@ -16,7 +15,6 @@ interface VideoThumbnailDashboardProps {
   attempts: any[];
   onAttemptSelect: (attempt: any) => void;
   loading?: boolean;
-  showTrendChart?: boolean;
   gridSize?: 'small' | 'medium' | 'large';
 }
 
@@ -24,7 +22,6 @@ export const VideoThumbnailDashboard: React.FC<VideoThumbnailDashboardProps> = (
   attempts = [],
   onAttemptSelect,
   loading = false,
-  showTrendChart = true,
   gridSize = 'medium'
 }) => {
   const [filters, setFilters] = useState<VideoFilters>({
@@ -42,7 +39,8 @@ export const VideoThumbnailDashboard: React.FC<VideoThumbnailDashboardProps> = (
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   
-  const itemsPerPage = gridSize === 'small' ? 20 : gridSize === 'medium' ? 12 : 8;
+  const defaultPageSize = gridSize === 'small' ? 20 : gridSize === 'medium' ? 12 : 8;
+  const [pageSize, setPageSize] = useState<number>(defaultPageSize);
 
   // Extract unique values for filter options
   const filterOptions = useMemo(() => {
@@ -166,11 +164,11 @@ export const VideoThumbnailDashboard: React.FC<VideoThumbnailDashboardProps> = (
 
   // Paginated attempts
   const paginatedAttempts = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredAttempts.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredAttempts, currentPage, itemsPerPage]);
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredAttempts.slice(startIndex, startIndex + pageSize);
+  }, [filteredAttempts, currentPage, pageSize]);
 
-  const totalPages = Math.ceil(filteredAttempts.length / itemsPerPage);
+  const totalPages = Math.ceil(filteredAttempts.length / pageSize) || 1;
 
   // Preload thumbnails for visible attempts
   useEffect(() => {
@@ -247,7 +245,7 @@ export const VideoThumbnailDashboard: React.FC<VideoThumbnailDashboardProps> = (
             gridSize === 'medium' ? 'grid-cols-1 md:grid-cols-3 lg:grid-cols-4' :
             'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
           }`}>
-            {Array.from({ length: itemsPerPage }).map((_, i) => (
+            {Array.from({ length: pageSize }).map((_, i) => (
               <div key={i} className="animate-pulse">
                 <div className="bg-gray-300 rounded-lg aspect-video mb-3"></div>
                 <div className="space-y-2">
@@ -419,15 +417,7 @@ export const VideoThumbnailDashboard: React.FC<VideoThumbnailDashboardProps> = (
         </div>
       </div>
 
-      {/* Score Trend Chart */}
-      {showTrendChart && filteredAttempts.length > 0 && (
-        <ScoreTrendChart
-          attempts={filteredAttempts}
-          onPointClick={onAttemptSelect}
-          height={200}
-          showLegend={true}
-        />
-      )}
+      {/* Score Trend Chart - removed per request */}
 
       {/* Attempts Grid/List */}
       <div className="bg-white rounded-lg shadow">
@@ -441,6 +431,52 @@ export const VideoThumbnailDashboard: React.FC<VideoThumbnailDashboardProps> = (
           </div>
         ) : (
           <>
+            {/* Top pagination controls (always shown for page-size access) */}
+            <div className="px-6 py-3 border-b border-gray-200 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-2 py-1 text-sm border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  First
+                </button>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className="px-2 py-1 text-sm border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-gray-600">Page {currentPage} of {totalPages}</span>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-2 py-1 text-sm border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  Next
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="px-2 py-1 text-sm border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  Last
+                </button>
+              </div>
+              <div className="flex items-center space-x-2 text-sm">
+                <span className="text-gray-600">Items per page:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                  className="px-2 py-1 border border-gray-300 rounded"
+                >
+                  {[8, 12, 20, 24, 36].map(size => (
+                    <option key={size} value={size}>{size}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
             <div className="p-6">
               <div className={`grid gap-6 ${
                 viewMode === 'grid' ? (

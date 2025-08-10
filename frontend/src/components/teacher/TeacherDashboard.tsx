@@ -964,7 +964,6 @@ export function TeacherDashboard() {
                 attempts={recentAttempts}
                 onAttemptSelect={(attempt) => setSelectedAttempt(attempt)}
                 loading={loading}
-                showTrendChart={true}
                 gridSize="medium"
               />
             ) : (
