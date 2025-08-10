@@ -1,5 +1,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 
+// Toggle for preview debug logs
+const DEBUG_PREVIEW = false;
+
 interface VideoHoverPreviewProps {
   videoUrl: string;
   isVisible: boolean;
@@ -61,7 +64,7 @@ export const VideoHoverPreview: React.FC<VideoHoverPreviewProps> = ({
 
   // Handle video loading and playback
   useEffect(() => {
-    console.log('🎬 VIDEO PREVIEW MOUNT:', {
+    if (DEBUG_PREVIEW) console.log('🎬 VIDEO PREVIEW MOUNT:', {
       isVisible,
       videoUrl,
       hasVideoRef: !!videoRef.current
@@ -69,7 +72,7 @@ export const VideoHoverPreview: React.FC<VideoHoverPreviewProps> = ({
     
     const video = videoRef.current;
     if (!video || !isVisible || !videoUrl) {
-      console.log('❌ Video preview setup failed:', {
+      if (DEBUG_PREVIEW) console.log('❌ Video preview setup failed:', {
         hasVideo: !!video,
         isVisible,
         hasVideoUrl: !!videoUrl
@@ -80,25 +83,25 @@ export const VideoHoverPreview: React.FC<VideoHoverPreviewProps> = ({
     // Validate URL before proceeding
     try {
       new URL(videoUrl);
-      console.log('✅ Video URL is valid:', videoUrl);
+      if (DEBUG_PREVIEW) console.log('✅ Video URL is valid:', videoUrl);
     } catch (error) {
-      console.warn('❌ Invalid video URL:', videoUrl);
+      if (DEBUG_PREVIEW) console.warn('❌ Invalid video URL:', videoUrl);
       setIsLoaded(false);
       return;
     }
 
     // Reset states
-    console.log('🔄 Resetting video states');
+    if (DEBUG_PREVIEW) console.log('🔄 Resetting video states');
     setIsLoaded(false);
     setIsPlaying(false);
 
     const handleCanPlay = () => {
-      console.log('🎯 VIDEO CAN PLAY:', videoUrl);
+      if (DEBUG_PREVIEW) console.log('🎯 VIDEO CAN PLAY:', videoUrl);
       setIsLoaded(true);
       
       // Simple auto-play attempt
       setTimeout(() => {
-        console.log('⏰ Auto-play timeout fired:', {
+        if (DEBUG_PREVIEW) console.log('⏰ Auto-play timeout fired:', {
           hasVideo: !!video,
           isPaused: video?.paused,
           isVisible,
@@ -106,14 +109,14 @@ export const VideoHoverPreview: React.FC<VideoHoverPreviewProps> = ({
         });
         
         if (video && video.paused && isVisible) {
-          console.log('🎮 Attempting to play video:', videoUrl);
+          if (DEBUG_PREVIEW) console.log('🎮 Attempting to play video:', videoUrl);
           video.play().then(() => {
-            console.log('✅ Auto-play SUCCESS for:', videoUrl);
+            if (DEBUG_PREVIEW) console.log('✅ Auto-play SUCCESS for:', videoUrl);
           }).catch((error) => {
-            console.log('❌ Auto-play blocked for:', videoUrl, '(this is normal behavior)', error.name);
+            if (DEBUG_PREVIEW) console.log('❌ Auto-play blocked for:', videoUrl, '(this is normal behavior)', error.name);
           });
         } else {
-          console.log('⏸️ Not attempting play:', {
+          if (DEBUG_PREVIEW) console.log('⏸️ Not attempting play:', {
             hasVideo: !!video,
             isPaused: video?.paused,
             isVisible
@@ -123,16 +126,16 @@ export const VideoHoverPreview: React.FC<VideoHoverPreviewProps> = ({
     };
 
     const handleLoadedMetadata = () => {
-      console.log('Video metadata loaded:', videoUrl);
+      if (DEBUG_PREVIEW) console.log('Video metadata loaded:', videoUrl);
     };
 
     const handlePlay = () => {
-      console.log('▶️ VIDEO STARTED PLAYING:', videoUrl);
+      if (DEBUG_PREVIEW) console.log('▶️ VIDEO STARTED PLAYING:', videoUrl);
       setIsPlaying(true);
     };
 
     const handlePause = () => {
-      console.log('⏸️ VIDEO PAUSED:', videoUrl);
+      if (DEBUG_PREVIEW) console.log('⏸️ VIDEO PAUSED:', videoUrl);
       setIsPlaying(false);
     };
 
@@ -157,7 +160,7 @@ export const VideoHoverPreview: React.FC<VideoHoverPreviewProps> = ({
         }
       }
       
-      console.warn('Video preview failed to load:', {
+      if (DEBUG_PREVIEW) console.warn('Video preview failed to load:', {
         url: videoUrl,
         error: errorMessage,
         mediaError: target.error,
@@ -168,12 +171,12 @@ export const VideoHoverPreview: React.FC<VideoHoverPreviewProps> = ({
     };
 
     const handleAbort = () => {
-      console.log('Video loading aborted for:', videoUrl);
+      if (DEBUG_PREVIEW) console.log('Video loading aborted for:', videoUrl);
       setIsLoaded(false);
     };
 
     const handleEmptied = () => {
-      console.log('Video emptied for:', videoUrl);
+      if (DEBUG_PREVIEW) console.log('Video emptied for:', videoUrl);
       setIsLoaded(false);
       setIsPlaying(false);
     };
@@ -188,17 +191,17 @@ export const VideoHoverPreview: React.FC<VideoHoverPreviewProps> = ({
     video.addEventListener('emptied', handleEmptied);
 
     // Properly clear any previous src and load new video
-    console.log('🧹 Clearing previous video source');
+    if (DEBUG_PREVIEW) console.log('🧹 Clearing previous video source');
     video.removeAttribute('src');
     video.load(); // This clears the current source
     
     // Set new source after a brief delay to ensure clean state
     setTimeout(() => {
       if (video && videoUrl) {
-        console.log('🔗 Setting video source:', videoUrl);
+        if (DEBUG_PREVIEW) console.log('🔗 Setting video source:', videoUrl);
         video.src = videoUrl;
         video.load();
-        console.log('🔄 Video.load() called');
+        if (DEBUG_PREVIEW) console.log('🔄 Video.load() called');
       }
     }, 10);
 
@@ -219,9 +222,9 @@ export const VideoHoverPreview: React.FC<VideoHoverPreviewProps> = ({
     };
   }, [videoUrl, isVisible]);
 
-  // Handle landmark overlay drawing
+  // Handle landmark overlay drawing (works when paused and when playing)
   useEffect(() => {
-    if (!showLandmarks || !landmarks.length || !isPlaying) return;
+    if (!showLandmarks || !landmarks || landmarks.length === 0) return;
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -230,42 +233,62 @@ export const VideoHoverPreview: React.FC<VideoHoverPreviewProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const drawLandmarks = () => {
-      if (video.paused || video.ended) return;
-
-      // Calculate current frame based on video time
-      const currentTime = video.currentTime;
-      const frameRate = landmarks.length / video.duration;
-      const currentFrame = Math.floor(currentTime * frameRate);
-      
-      if (currentFrame >= 0 && currentFrame < landmarks.length) {
-        const frame = landmarks[currentFrame];
-        
-        // Clear canvas
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // Draw landmarks if available
-        if (frame && frame.landmarks) {
-          ctx.fillStyle = '#00ff00';
-          ctx.strokeStyle = '#00ff00';
-          ctx.lineWidth = 2;
-          
-          // Draw hand landmarks
-          frame.landmarks.forEach((landmark: any) => {
-            const x = landmark.x * canvas.width;
-            const y = landmark.y * canvas.height;
-            
-            ctx.beginPath();
-            ctx.arc(x, y, 3, 0, 2 * Math.PI);
-            ctx.fill();
-          });
-        }
+    const renderOnce = () => {
+      const duration = isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+      const currentTime = isFinite(video.currentTime) ? video.currentTime : 0;
+      let index = 0;
+      if (duration > 0) {
+        const frameRate = landmarks.length / duration;
+        index = Math.floor(currentTime * frameRate);
+      } else {
+        // Fallback to first frame if duration unknown
+        index = 0;
       }
+      if (index < 0) index = 0;
+      if (index >= landmarks.length) index = landmarks.length - 1;
 
-      requestAnimationFrame(drawLandmarks);
+      const frame = landmarks[index];
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (frame && frame.landmarks) {
+        ctx.fillStyle = '#00ff00';
+        frame.landmarks.forEach((lm: any) => {
+          const x = lm.x * canvas.width;
+          const y = lm.y * canvas.height;
+          ctx.beginPath();
+          ctx.arc(x, y, 3, 0, 2 * Math.PI);
+          ctx.fill();
+        });
+      }
     };
 
-    drawLandmarks();
+    let rafId = 0;
+    const tick = () => {
+      if (!video.paused && !video.ended) {
+        renderOnce();
+        rafId = requestAnimationFrame(tick);
+      }
+    };
+
+    // Always draw at least once (even if paused / autoplay blocked)
+    renderOnce();
+
+    // While playing, keep drawing via RAF
+    if (!video.paused && !video.ended) {
+      rafId = requestAnimationFrame(tick);
+    }
+
+    // Also redraw on time updates and seek when paused
+    const onTimeUpdate = () => renderOnce();
+    const onSeeked = () => renderOnce();
+    video.addEventListener('timeupdate', onTimeUpdate);
+    video.addEventListener('seeked', onSeeked);
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      video.removeEventListener('timeupdate', onTimeUpdate);
+      video.removeEventListener('seeked', onSeeked);
+    };
   }, [landmarks, showLandmarks, isPlaying]);
 
   // Reset state when visibility changes
@@ -277,16 +300,11 @@ export const VideoHoverPreview: React.FC<VideoHoverPreviewProps> = ({
   }, [isVisible]);
 
   if (!isVisible) {
-    console.log('👻 Preview not visible, not rendering');
+    // suppressed noisy log
     return null;
   }
 
-  console.log('🎬 RENDERING VIDEO PREVIEW:', {
-    videoUrl,
-    isLoaded,
-    isPlaying,
-    position: calculatedPosition
-  });
+  // suppressed noisy render log
 
   return (
     <>
@@ -347,6 +365,7 @@ export const VideoHoverPreview: React.FC<VideoHoverPreviewProps> = ({
             <canvas
               ref={canvasRef}
               className="absolute top-0 left-0 w-full h-full pointer-events-none"
+              // Sync canvas size to video client size on mount and resize for alignment
               width={320}
               height={180}
             />

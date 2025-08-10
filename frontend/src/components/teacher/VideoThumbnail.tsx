@@ -3,6 +3,9 @@ import { thumbnailCache } from '../../utils/thumbnailGenerator';
 import { calculateOverallScore, categorizeScore, formatScore } from '../../utils/scoreCalculation';
 import { VideoHoverPreview } from './VideoHoverPreview';
 
+// Toggle for preview/thumbnails debug logs
+const DEBUG_PREVIEW = false;
+
 interface VideoThumbnailProps {
   attempt: {
     id: string;
@@ -95,8 +98,8 @@ export const VideoThumbnail: React.FC<VideoThumbnailProps> = ({
   };
 
   // Handle mouse enter
-  const handleMouseEnter = () => {
-    console.log('🖱️ HOVER START:', {
+  const handleMouseEnter = (event: React.MouseEvent) => {
+    if (DEBUG_PREVIEW) console.log('🖱️ HOVER START:', {
       attemptId: attempt.id,
       videoUrl: attempt.video_url,
       signName: attempt.sign_name,
@@ -106,48 +109,43 @@ export const VideoThumbnail: React.FC<VideoThumbnailProps> = ({
     
     setIsHovering(true);
     hoverStartedAtRef.current = Date.now();
+    // Seed preview position at current mouse
+    const initialPos = { x: event.clientX + 16, y: event.clientY + 16 };
+    setHoverPosition(initialPos);
+    if (DEBUG_PREVIEW) console.log('📍 Initial preview position (mouse):', initialPos);
     
-    // Update hover position
-    const rect = thumbnailRef.current?.getBoundingClientRect();
-    if (rect) {
-      const position = {
-        x: rect.right + 10,
-        y: rect.top
-      };
-      setHoverPosition(position);
-      console.log('📍 Hover position set:', position);
-    }
+    // (Deprecated) previous rect-based position removed in favor of cursor position
 
     // Clear any existing timeouts
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
-      console.log('🧹 Cleared hover timeout');
+      if (DEBUG_PREVIEW) console.log('🧹 Cleared hover timeout');
     }
     if (previewDelayRef.current) {
       clearTimeout(previewDelayRef.current);
-      console.log('🧹 Cleared preview delay timeout');
+      if (DEBUG_PREVIEW) console.log('🧹 Cleared preview delay timeout');
     }
 
     // Show preview after delay (only if there's a valid video URL)
     if (attempt.video_url && isValidVideoUrl(attempt.video_url)) {
-      console.log('⏱️ Setting preview delay for:', attempt.video_url);
+      if (DEBUG_PREVIEW) console.log('⏱️ Setting preview delay for:', attempt.video_url);
       previewDelayRef.current = setTimeout(() => {
         const now = Date.now();
         const leftAgoMs = lastMouseLeaveAtRef.current ? now - lastMouseLeaveAtRef.current : -1;
         const withinLeaveGrace = leftAgoMs >= 0 && leftAgoMs <= 500; // grace after leaving
         const enteredAgoMs = hoverStartedAtRef.current ? now - hoverStartedAtRef.current : -1;
         const withinEnterGrace = enteredAgoMs >= 0 && enteredAgoMs <= 350; // show even if user left quickly
-        console.log('⏰ Preview delay timeout fired:', { isHovering, withinLeaveGrace, leftAgoMs, withinEnterGrace, enteredAgoMs });
+        if (DEBUG_PREVIEW) console.log('⏰ Preview delay timeout fired:', { isHovering, withinLeaveGrace, leftAgoMs, withinEnterGrace, enteredAgoMs });
         // Show if still hovering, or left very recently, or entered very recently
         if (isHovering || withinLeaveGrace || withinEnterGrace) {
-          console.log('✅ Showing preview for:', attempt.video_url);
+          if (DEBUG_PREVIEW) console.log('✅ Showing preview for:', attempt.video_url);
           setShowPreview(true);
         } else {
-          console.log('❌ Not showing preview - failed grace checks');
+          if (DEBUG_PREVIEW) console.log('❌ Not showing preview - failed grace checks');
         }
       }, 200); // Reduced to 200ms for faster response
     } else {
-      console.log('❌ Cannot show preview:', {
+      if (DEBUG_PREVIEW) console.log('❌ Cannot show preview:', {
         hasUrl: !!attempt.video_url,
         isValid: attempt.video_url ? isValidVideoUrl(attempt.video_url) : false,
         url: attempt.video_url
@@ -155,9 +153,19 @@ export const VideoThumbnail: React.FC<VideoThumbnailProps> = ({
     }
   };
 
+  // Track mouse position while hovering (until preview shows)
+  const handleMouseMove = (event: React.MouseEvent) => {
+    if (!isHovering) return;
+    if (showPreview) return; // no need to chase cursor once open
+    const pos = { x: event.clientX + 16, y: event.clientY + 16 };
+    setHoverPosition(pos);
+    // Optional: comment next line if too chatty
+    // if (DEBUG_PREVIEW) console.log('📍 Updating preview position (mouse):', pos);
+  };
+
   // Handle mouse leave
   const handleMouseLeave = () => {
-    console.log('🖱️ HOVER END:', {
+    if (DEBUG_PREVIEW) console.log('🖱️ HOVER END:', {
       attemptId: attempt.id,
       wasShowingPreview: showPreview,
       isCurrentlyHovering: isHovering
@@ -169,17 +177,17 @@ export const VideoThumbnail: React.FC<VideoThumbnailProps> = ({
     // Clear timeout
     if (previewDelayRef.current) {
       clearTimeout(previewDelayRef.current);
-      console.log('🧹 Cleared preview delay on mouse leave');
+      if (DEBUG_PREVIEW) console.log('🧹 Cleared preview delay on mouse leave');
     }
 
     // Hide preview with delay to allow moving to preview
-    console.log('⏱️ Setting hide preview timeout (500ms)');
+    if (DEBUG_PREVIEW) console.log('⏱️ Setting hide preview timeout (500ms)');
     hoverTimeoutRef.current = setTimeout(() => {
-      console.log('⏰ Hide preview timeout fired');
+      if (DEBUG_PREVIEW) console.log('⏰ Hide preview timeout fired');
       if (!isOverPreviewRef.current) {
         setShowPreview(false);
       } else {
-        console.log('🛑 Not hiding preview - mouse over preview');
+        if (DEBUG_PREVIEW) console.log('🛑 Not hiding preview - mouse over preview');
       }
     }, 500); // Increased to 500ms to give time to move to preview
   };
@@ -191,31 +199,31 @@ export const VideoThumbnail: React.FC<VideoThumbnailProps> = ({
 
   // Close preview
   const handleClosePreview = () => {
-    console.log('❌ CLOSE PREVIEW:', attempt.id);
+    if (DEBUG_PREVIEW) console.log('❌ CLOSE PREVIEW:', attempt.id);
     setShowPreview(false);
     setIsHovering(false);
   };
 
   // Preview window hover handlers (passed to preview component)
   const handlePreviewMouseEnter = () => {
-    console.log('🖱️ ENTER PREVIEW (from thumbnail handler)');
+    if (DEBUG_PREVIEW) console.log('🖱️ ENTER PREVIEW (from thumbnail handler)');
     isOverPreviewRef.current = true;
     if (hoverTimeoutRef.current) {
       clearTimeout(hoverTimeoutRef.current);
-      console.log('🧹 Cleared hide timeout on preview enter');
+      if (DEBUG_PREVIEW) console.log('🧹 Cleared hide timeout on preview enter');
     }
     // Ensure preview remains visible
     setShowPreview(true);
   };
 
   const handlePreviewMouseLeave = () => {
-    console.log('🖱️ LEAVE PREVIEW (from thumbnail handler)');
+    if (DEBUG_PREVIEW) console.log('🖱️ LEAVE PREVIEW (from thumbnail handler)');
     isOverPreviewRef.current = false;
     // Start a short timeout to hide after leaving preview
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     hoverTimeoutRef.current = setTimeout(() => {
       if (!isHovering && !isOverPreviewRef.current) {
-        console.log('⏰ Hiding preview after leaving preview area');
+        if (DEBUG_PREVIEW) console.log('⏰ Hiding preview after leaving preview area');
         setShowPreview(false);
       }
     }, 250);
@@ -240,6 +248,7 @@ export const VideoThumbnail: React.FC<VideoThumbnailProps> = ({
         }`}
         style={{ width: config.width }}
         onMouseEnter={handleMouseEnter}
+        onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onClick={handleClick}
       >
