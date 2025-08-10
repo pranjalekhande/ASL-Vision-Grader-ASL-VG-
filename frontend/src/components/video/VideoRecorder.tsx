@@ -149,7 +149,7 @@ export const VideoRecorder: React.FC<VideoRecorderProps> = ({
           // Later, we'll get this from the current exercise/lesson
           const signId = 'placeholder-sign-id';
           const result = await upload(signId, recordedBlob, landmarkData);
-          console.log('Upload completed:', result);
+
         } catch (error) {
           console.error('Upload failed:', error);
           // Don't block the UI - upload failure is handled separately

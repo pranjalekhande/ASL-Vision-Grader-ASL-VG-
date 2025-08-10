@@ -33,7 +33,7 @@ export class SupabaseService {
         ...(scores || {}) // Include scores if provided
       };
       
-      console.log('Inserting attempt with data:', insertData);
+
       
       const { data: attempt, error: attemptError } = await supabase
         .from('attempts')
@@ -45,6 +45,7 @@ export class SupabaseService {
 
       // Upload video
       const videoPath = this.generateStoragePath('video', attempt.id);
+
       const { error: videoError } = await supabase.storage
         .from('videos')
         .upload(videoPath, videoBlob, {
@@ -52,7 +53,11 @@ export class SupabaseService {
           cacheControl: '3600',
         });
 
-      if (videoError) throw videoError;
+      if (videoError) {
+        console.error('Video upload error:', videoError);
+        throw videoError;
+      }
+
 
       // Upload landmarks
       const landmarksPath = this.generateStoragePath('landmarks', attempt.id);
@@ -69,16 +74,25 @@ export class SupabaseService {
       const { data: { publicUrl: videoUrl } } = supabase.storage
         .from('videos')
         .getPublicUrl(videoPath);
+      
+
 
       // Update attempt with video URL
-      const { error: updateError } = await supabase
+
+      const { data: updatedAttempt, error: updateError } = await supabase
         .from('attempts')
         .update({ video_url: videoUrl })
-        .eq('id', attempt.id);
+        .eq('id', attempt.id)
+        .select()
+        .single();
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error('Database update error:', updateError);
+        throw updateError;
+      }
 
-      return attempt;
+
+      return updatedAttempt || attempt;
     } catch (error) {
       console.error('Error uploading attempt:', error);
       throw error;

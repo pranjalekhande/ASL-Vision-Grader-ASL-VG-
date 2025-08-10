@@ -338,18 +338,7 @@ function analyzeGestureType(sequence: HandLandmarkFrame[]): {
   const isWave = waveMovement > validFrames.length * 0.2 || movementVariance > 0.008;
   const isStationary = movementVariance < 0.008;
   
-  // Debug logging for gesture detection
-  console.log('Gesture Detection Details:', {
-    avgThumbExtension,
-    avgFingersClosed,
-    movementVariance,
-    waveMovement,
-    waveMovementRatio: waveMovement / validFrames.length,
-    isThumbsUp,
-    isWave,
-    isStationary,
-    frameCount: validFrames.length
-  });
+  // Gesture detection completed
   
   return {
     isThumbsUp,
@@ -369,34 +358,31 @@ function calculateGestureTypePenalty(
   const gesture1 = analyzeGestureType(sequence1);
   const gesture2 = analyzeGestureType(sequence2);
   
-  console.log('Penalty Calculation:', {
-    gesture1: { isThumbsUp: gesture1.isThumbsUp, isWave: gesture1.isWave, isStationary: gesture1.isStationary },
-    gesture2: { isThumbsUp: gesture2.isThumbsUp, isWave: gesture2.isWave, isStationary: gesture2.isStationary }
-  });
+
   
   // Heavy penalty for completely different gesture types
   if (gesture1.isThumbsUp && gesture2.isWave) {
-    console.log('Applied 50% penalty: Thumbs up vs Wave');
+
     return 0.5; // 50% penalty - increased
   }
   if (gesture1.isWave && gesture2.isThumbsUp) {
-    console.log('Applied 50% penalty: Wave vs Thumbs up');
+
     return 0.5; // 50% penalty - increased
   }
   
   // Medium penalty for movement vs stationary mismatch
   if (gesture1.isStationary !== gesture2.isStationary) {
-    console.log('Applied 25% penalty: Movement vs Stationary mismatch');
+
     return 0.25; // 25% penalty - increased
   }
   
   // Small penalty for other mismatches
   if (gesture1.isThumbsUp !== gesture2.isThumbsUp) {
-    console.log('Applied 15% penalty: Thumbs up mismatch');
+
     return 0.15; // 15% penalty - increased
   }
   if (gesture1.isWave !== gesture2.isWave) {
-    console.log('Applied 15% penalty: Wave mismatch');
+
     return 0.15; // 15% penalty - increased
   }
   
@@ -518,15 +504,9 @@ export function calculateDetailedScores(
   locationScore *= (1 - gestureTypePenalty);
   movementScore *= (1 - gestureTypePenalty);
 
-  // Add debug logging for gesture analysis
+  // Analyze gesture types for penalty calculation
   const gesture1 = analyzeGestureType(sequence1);
   const gesture2 = analyzeGestureType(sequence2);
-  console.log('Gesture Analysis:', {
-    recorded: gesture1,
-    exemplar: gesture2,
-    penalty: gestureTypePenalty,
-    scores: { handshapeScore, locationScore, movementScore }
-  });
 
   return {
     handshapeScore: Math.max(0, Math.min(100, handshapeScore)),

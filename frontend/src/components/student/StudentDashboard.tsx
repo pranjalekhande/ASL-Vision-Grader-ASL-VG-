@@ -6,6 +6,7 @@ import type { HandLandmarkFrame, RecordingData } from '../../types/landmarks';
 import { supabase } from '../../config/supabase';
 import { SupabaseService } from '../../services/supabase';
 import { useSignComparison } from '../../hooks/useSignComparison';
+import { StudentVideoDebug } from './StudentVideoDebug';
 
 interface Sign {
   id: string;
@@ -174,9 +175,9 @@ export function StudentDashboard() {
           };
 
           // Calculate DTW scores
-          console.log('Calculating DTW scores...');
+
           const comparison = await compareSign(recordingData, exemplarData);
-          console.log('Raw comparison result:', comparison);
+
           
           scores = {
             score_shape: Math.round(comparison.handshapeScore * 100) / 100,
@@ -185,7 +186,7 @@ export function StudentDashboard() {
             heatmap: comparison.heatmap
           };
           
-          console.log('DTW Scores calculated:', scores);
+
         } catch (scoreError) {
           console.error('Error calculating scores:', scoreError);
           // Continue with save even if scoring fails
@@ -193,14 +194,14 @@ export function StudentDashboard() {
       }
 
       // Save attempt to database with real service (including scores)
-      console.log('Saving attempt to database with scores...');
+
       const attempt = await SupabaseService.uploadAttempt({
         signId: selectedSignId,
         videoBlob: lastRecordedBlob,
         landmarkData: recordingData,
         scores: scores || undefined // Include scores in initial save
       });
-      console.log('Attempt saved with scores:', attempt);
+      console.log('✅ Attempt saved successfully:', attempt.id);
       
       const scoreMessage = scores 
         ? `\n🎯 Scores: Shape ${scores.score_shape}%, Location ${scores.score_location}%, Movement ${scores.score_movement}%`
@@ -607,6 +608,9 @@ export function StudentDashboard() {
           </div>
         </div>
       )}
+
+      {/* Student Video Debug */}
+      <StudentVideoDebug />
     </div>
   );
 }

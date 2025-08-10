@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from './hooks/useAuth';
-import { TeacherDashboard } from './components/teacher/TeacherDashboard';
+import { TeacherRouter } from './components/teacher/TeacherRouter';
 import { StudentDashboard } from './components/student/StudentDashboard';
 
 // Simple auth components (simplified versions)
@@ -258,7 +258,7 @@ function App() {
       
       {/* Route to appropriate dashboard */}
       {isTeacher() ? (
-        <TeacherDashboard />
+        <TeacherRouter />
       ) : (
         <StudentDashboard />
       )}

@@ -82,7 +82,7 @@ export class UploadService {
 
       // Upload landmarks with retry
       const landmarkFileName = `landmarks-${timestamp}.json`;
-      console.log('Uploading landmarks:', landmarkFileName);
+
       
       let landmarkUrl: string;
       try {
