@@ -1160,17 +1160,17 @@ export function TeacherDashboard() {
               {/* Role badge and sign out */}
               <div className="flex items-center space-x-3">
                 <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-medium">
-                  Teacher
-                </span>
-                <button
-                  onClick={signOut}
+                Teacher
+              </span>
+              <button
+                onClick={signOut}
                   className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-                >
+              >
                   <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                   </svg>
-                  Sign Out
-                </button>
+                Sign Out
+              </button>
               </div>
             </div>
           </div>
@@ -1211,8 +1211,8 @@ export function TeacherDashboard() {
                   </svg>
                   <span>Across all students</span>
                 </div>
-              </div>
-
+            </div>
+            
               <div className="bg-gradient-to-r from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1233,15 +1233,15 @@ export function TeacherDashboard() {
                   </svg>
                   <span>Sign diversity</span>
                 </div>
-              </div>
-
+            </div>
+            
               <div className="bg-gradient-to-r from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-purple-100 text-sm font-medium">Average Score</p>
                     <p className="text-3xl font-bold mt-1">
-                      {students.length > 0 ? Math.round(students.reduce((acc, s) => acc + s.avg_score, 0) / students.length) : 0}%
-                    </p>
+                {students.length > 0 ? Math.round(students.reduce((acc, s) => acc + s.avg_score, 0) / students.length) : 0}%
+              </p>
                   </div>
                   <div className="bg-purple-400 bg-opacity-30 rounded-lg p-3">
                     <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
@@ -1255,7 +1255,7 @@ export function TeacherDashboard() {
                   </svg>
                   <span>Class performance</span>
                 </div>
-              </div>
+            </div>
 
               <div className="bg-gradient-to-r from-orange-500 to-orange-600 rounded-xl shadow-lg p-6 text-white">
                 <div className="flex items-center justify-between">
@@ -1375,23 +1375,23 @@ export function TeacherDashboard() {
 
             {/* Recent Activity and Quick Insights */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Recent Activity */}
+            {/* Recent Activity */}
               <div className="bg-white rounded-xl shadow-lg p-6">
                 <h3 className="text-xl font-semibold text-gray-900 mb-6">Recent Student Activity</h3>
                 <div className="space-y-4">
-                  {students.slice(0, 5).map(student => (
+                {students.slice(0, 5).map(student => (
                     <div key={student.id} className="flex items-center justify-between border-b border-gray-100 pb-3">
-                      <div>
-                        <p className="font-medium text-gray-900">{student.full_name}</p>
+                    <div>
+                      <p className="font-medium text-gray-900">{student.full_name}</p>
                         <p className="text-sm text-gray-500">
                           Latest: {student.avg_score}% • Signs: {student.signs_practiced} • Attempts: {student.total_attempts}
                         </p>
-                      </div>
+                    </div>
                       <span className="text-sm text-gray-400">
                         Recent Activity
                       </span>
-                    </div>
-                  ))}
+                  </div>
+                ))}
                   {students.length === 0 && (
                     <p className="text-gray-500 text-center py-4">No student activity yet</p>
                   )}

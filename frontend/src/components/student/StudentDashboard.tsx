@@ -41,6 +41,12 @@ export function StudentDashboard() {
     loadSigns();
   }, []);
 
+  // Ensure attempts are available for Overview cards as well
+  useEffect(() => {
+    // Load once on mount so cards can compute stats, and again when tab changes to history
+    loadAttempts();
+  }, []);
+
   useEffect(() => {
     if (activeTab === 'history') {
       loadAttempts();
