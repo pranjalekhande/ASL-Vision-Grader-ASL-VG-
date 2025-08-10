@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth2FA } from '../../hooks/useAuth2FA';
 import { supabase } from '../../config/supabase';
 import { ReferenceRecorder } from '../signs/ReferenceRecorder';
 import { VideoReviewPlayer } from './VideoReviewPlayer';
 import { TimestampedFeedback } from './TimestampedFeedback';
 import { VideoThumbnailDashboard } from './VideoThumbnailDashboard';
+import { VideoRecorder } from '../video/VideoRecorder';
 import { FeedbackService, type FeedbackItem } from '../../services/feedbackService';
 import { 
   calculateOverallScore, 
@@ -12,8 +13,498 @@ import {
   categorizeScore,
   formatScore
 } from '../../utils/scoreCalculation';
+import type { HandLandmarkFrame } from '../../types/landmarks';
 
 type DashboardView = 'overview' | 'exemplars' | 'students' | 'analytics' | 'video-review';
+
+// Simple inline landmark viewer component for exemplar preview
+const ExemplarLandmarkViewer: React.FC<{ landmarks: HandLandmarkFrame[] }> = ({ landmarks }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [currentFrame, setCurrentFrame] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  // Draw landmarks on canvas
+  const drawLandmarks = (frame: HandLandmarkFrame) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw each hand
+    frame.landmarks.forEach((handLandmarks, handIndex) => {
+      const color = handIndex === 0 ? '#00ff00' : '#ff0000'; // Green for first hand, red for second
+      ctx.fillStyle = color;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+
+      // Draw landmarks as points
+      handLandmarks.forEach((landmark, index) => {
+        const x = landmark.x * canvas.width;
+        const y = landmark.y * canvas.height;
+        
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Draw landmark index for debugging (optional)
+        if (index % 4 === 0) { // Show every 4th landmark number to avoid clutter
+          ctx.fillStyle = 'white';
+          ctx.font = '10px Arial';
+          ctx.fillText(index.toString(), x + 5, y - 5);
+          ctx.fillStyle = color;
+        }
+      });
+
+      // Draw basic hand connections (simplified)
+      const connections = [
+        [0, 1], [1, 2], [2, 3], [3, 4], // Thumb
+        [0, 5], [5, 6], [6, 7], [7, 8], // Index
+        [0, 9], [9, 10], [10, 11], [11, 12], // Middle
+        [0, 13], [13, 14], [14, 15], [15, 16], // Ring
+        [0, 17], [17, 18], [18, 19], [19, 20], // Pinky
+      ];
+
+      connections.forEach(([start, end]) => {
+        if (start < handLandmarks.length && end < handLandmarks.length) {
+          const startPoint = handLandmarks[start];
+          const endPoint = handLandmarks[end];
+          
+          ctx.beginPath();
+          ctx.moveTo(startPoint.x * canvas.width, startPoint.y * canvas.height);
+          ctx.lineTo(endPoint.x * canvas.width, endPoint.y * canvas.height);
+          ctx.stroke();
+        }
+      });
+    });
+  };
+
+  // Animation effect
+  useEffect(() => {
+    let animationFrame: number;
+    
+    const animate = () => {
+      if (isPlaying && landmarks.length > 0) {
+        setCurrentFrame(prev => (prev + 1) % landmarks.length);
+        animationFrame = requestAnimationFrame(() => setTimeout(animate, 100)); // ~10 FPS
+      }
+    };
+
+    if (isPlaying) {
+      animate();
+    }
+
+    return () => {
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+      }
+    };
+  }, [isPlaying, landmarks.length]);
+
+  // Draw current frame
+  useEffect(() => {
+    if (landmarks[currentFrame]) {
+      drawLandmarks(landmarks[currentFrame]);
+    }
+  }, [currentFrame, landmarks]);
+
+  return (
+    <div className="bg-black rounded-lg p-4">
+      <div className="text-center text-white mb-4">
+        <h4 className="text-lg font-medium">Landmark Visualization</h4>
+        <p className="text-sm text-gray-300">
+          {landmarks.length} frames of landmark data
+        </p>
+      </div>
+
+      {/* Canvas for landmark visualization */}
+      <div className="flex justify-center mb-4">
+        <canvas
+          ref={canvasRef}
+          width={400}
+          height={300}
+          className="border border-gray-600 rounded bg-black"
+        />
+      </div>
+
+      {/* Controls */}
+      <div className="flex items-center justify-center space-x-4 text-white">
+        <button
+          onClick={() => setIsPlaying(!isPlaying)}
+          className="px-3 py-1 bg-blue-600 rounded text-sm hover:bg-blue-700"
+        >
+          {isPlaying ? 'Pause' : 'Play'}
+        </button>
+        
+        <span className="text-sm">
+          Frame: {currentFrame + 1} / {landmarks.length}
+        </span>
+        
+        <input
+          type="range"
+          min={0}
+          max={landmarks.length - 1}
+          value={currentFrame}
+          onChange={(e) => setCurrentFrame(parseInt(e.target.value))}
+          className="w-32"
+        />
+      </div>
+    </div>
+  );
+};
+
+// Exemplar edit form component
+const ExemplarEditForm: React.FC<{
+  exemplar: SignData;
+  onSave: (updatedExemplar: SignData) => void;
+  onCancel: () => void;
+  isUpdating: boolean;
+}> = ({ exemplar, onSave, onCancel, isUpdating }) => {
+  const [formData, setFormData] = useState({
+    name: exemplar.name || '',
+    description: exemplar.description || '',
+    difficulty: exemplar.difficulty || 'beginner',
+    category: exemplar.category || 'basic',
+    tags: exemplar.tags || []
+  });
+  const [newTag, setNewTag] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave({ ...exemplar, ...formData });
+  };
+
+  const addTag = () => {
+    if (newTag.trim() && !formData.tags.includes(newTag.trim())) {
+      setFormData(prev => ({
+        ...prev,
+        tags: [...prev.tags, newTag.trim()]
+      }));
+      setNewTag('');
+    }
+  };
+
+  const removeTag = (tagToRemove: string) => {
+    setFormData(prev => ({
+      ...prev,
+      tags: prev.tags.filter((tag: string) => tag !== tagToRemove)
+    }));
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+        {/* Background overlay */}
+        <div 
+          className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
+          onClick={onCancel}
+        ></div>
+
+        {/* Modal content */}
+        <div className="inline-block w-full max-w-2xl p-6 my-8 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-lg">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-lg font-medium text-gray-900">
+              Edit Exemplar: {exemplar.name}
+            </h3>
+            <button
+              onClick={onCancel}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Name */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Name *
+              </label>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+
+            {/* Description */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Description
+              </label>
+              <textarea
+                value={formData.description}
+                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Describe this sign..."
+              />
+            </div>
+
+            {/* Difficulty & Category */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Difficulty
+                </label>
+                <select
+                  value={formData.difficulty}
+                  onChange={(e) => setFormData(prev => ({ ...prev, difficulty: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="beginner">Beginner</option>
+                  <option value="intermediate">Intermediate</option>
+                  <option value="advanced">Advanced</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Category
+                </label>
+                <select
+                  value={formData.category}
+                  onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="basic">Basic</option>
+                  <option value="emotions">Emotions</option>
+                  <option value="actions">Actions</option>
+                  <option value="objects">Objects</option>
+                  <option value="people">People</option>
+                  <option value="places">Places</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Tags */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Tags
+              </label>
+              <div className="flex space-x-2 mb-2">
+                <input
+                  type="text"
+                  value={newTag}
+                  onChange={(e) => setNewTag(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                  placeholder="Add a tag..."
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={addTag}
+                  className="px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                >
+                  Add
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {formData.tags.map((tag: string, index: number) => (
+                  <span
+                    key={index}
+                    className="inline-flex items-center px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full"
+                  >
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => removeTag(tag)}
+                      className="ml-1 text-blue-600 hover:text-blue-800"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end space-x-3 pt-4 border-t">
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={isUpdating}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isUpdating || !formData.name.trim()}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUpdating ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Exemplar re-record component
+const ExemplarRerecorder: React.FC<{
+  originalExemplar: SignData;
+  newRecordingData: {blob: Blob | null; landmarks: HandLandmarkFrame[]};
+  onNewRecording: (blob: Blob, landmarks: HandLandmarkFrame[]) => void;
+  onReplace: () => void;
+  onCancel: () => void;
+  isUpdating: boolean;
+}> = ({ originalExemplar, newRecordingData, onNewRecording, onReplace, onCancel, isUpdating }) => {
+  
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+        {/* Background overlay */}
+        <div 
+          className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
+          onClick={onCancel}
+        ></div>
+
+        {/* Modal content */}
+        <div className="inline-block w-full max-w-7xl p-6 my-8 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-lg">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-lg font-medium text-gray-900">
+              Re-record Exemplar: {originalExemplar.name}
+            </h3>
+            <button
+              onClick={onCancel}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Side-by-side comparison */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Current Exemplar */}
+            <div className="space-y-4">
+              <div className="bg-gray-50 p-4 rounded-lg border-2 border-gray-200">
+                <h4 className="text-lg font-medium text-gray-900 mb-2">Current Exemplar</h4>
+                <div className="text-sm text-gray-600 mb-4">
+                  <p>Frames: {originalExemplar.landmarks?.frames?.length || 0}</p>
+                  <p>Last updated: {new Date(originalExemplar.updated_at).toLocaleDateString()}</p>
+                </div>
+                
+                {originalExemplar.landmarks?.frames?.length > 0 ? (
+                  <ExemplarLandmarkViewer landmarks={originalExemplar.landmarks.frames} />
+                ) : (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <p className="text-yellow-800 text-center text-sm">
+                      No landmark data available
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* New Recording */}
+            <div className="space-y-4">
+              <div className="bg-blue-50 p-4 rounded-lg border-2 border-blue-200">
+                <h4 className="text-lg font-medium text-blue-900 mb-2">New Recording</h4>
+                
+                {!newRecordingData.blob ? (
+                  <div className="space-y-4">
+                    <p className="text-sm text-blue-700 mb-4">
+                      Record a new version of this exemplar. The recording will replace the current one.
+                    </p>
+                    <VideoRecorder
+                      onRecordingComplete={onNewRecording}
+                      maxDuration={7}
+                      width={640}
+                      height={480}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="text-sm text-blue-700 mb-4">
+                      <p>✅ New recording captured!</p>
+                      <p>Frames: {newRecordingData.landmarks.length}</p>
+                    </div>
+                    
+                    {newRecordingData.landmarks.length > 0 && (
+                      <ExemplarLandmarkViewer landmarks={newRecordingData.landmarks} />
+                    )}
+                    
+                    <button
+                      onClick={() => onNewRecording(null as any, [])}
+                      className="w-full px-4 py-2 text-sm font-medium text-blue-700 bg-blue-100 border border-blue-300 rounded-md hover:bg-blue-200"
+                    >
+                      Record Again
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Comparison Stats */}
+          {newRecordingData.blob && newRecordingData.landmarks.length > 0 && (
+            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+              <h5 className="font-medium text-gray-900 mb-2">Comparison</h5>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-600">Original frames:</span>
+                  <span className="ml-2 font-medium">{originalExemplar.landmarks?.frames?.length || 0}</span>
+                </div>
+                <div>
+                  <span className="text-gray-600">New frames:</span>
+                  <span className="ml-2 font-medium">{newRecordingData.landmarks.length}</span>
+                </div>
+                <div>
+                  <span className="text-gray-600">Difference:</span>
+                  <span className={`ml-2 font-medium ${
+                    newRecordingData.landmarks.length > (originalExemplar.landmarks?.frames?.length || 0) 
+                      ? 'text-green-600' 
+                      : newRecordingData.landmarks.length < (originalExemplar.landmarks?.frames?.length || 0)
+                      ? 'text-red-600' 
+                      : 'text-gray-600'
+                  }`}>
+                    {newRecordingData.landmarks.length - (originalExemplar.landmarks?.frames?.length || 0)} frames
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex justify-end space-x-3 pt-6 border-t mt-6">
+            <button
+              onClick={onCancel}
+              disabled={isUpdating}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onReplace}
+              disabled={isUpdating || !newRecordingData.blob || newRecordingData.landmarks.length === 0}
+              className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isUpdating ? 'Replacing...' : 'Replace Exemplar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface SignData {
   id: string;
@@ -21,6 +512,10 @@ interface SignData {
   landmarks: any;
   created_at: string;
   updated_at: string;
+  description?: string;
+  difficulty?: string;
+  category?: string;
+  tags?: string[];
 }
 
 interface StudentData {
@@ -73,10 +568,146 @@ export function TeacherDashboard() {
   // Feedback state
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
   const [loadingFeedback, setLoadingFeedback] = useState(false);
+  
+  // Exemplar management state
+  const [previewExemplar, setPreviewExemplar] = useState<SignData | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [editExemplar, setEditExemplar] = useState<SignData | null>(null);
+  const [showEdit, setShowEdit] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [rerecordExemplar, setRerecordExemplar] = useState<SignData | null>(null);
+  const [showRerecord, setShowRerecord] = useState(false);
+  const [newRecordingData, setNewRecordingData] = useState<{blob: Blob | null; landmarks: HandLandmarkFrame[]}>({blob: null, landmarks: []});
 
   useEffect(() => {
     loadDashboardData();
   }, []);
+
+  // Handler for exemplar preview
+  const handlePreviewExemplar = (sign: SignData) => {
+    setPreviewExemplar(sign);
+    setShowPreview(true);
+  };
+
+  const closePreview = () => {
+    setShowPreview(false);
+    setPreviewExemplar(null);
+  };
+
+  // Handler for exemplar editing
+  const handleEditExemplar = (sign: SignData) => {
+    setEditExemplar({ ...sign }); // Create a copy for editing
+    setShowEdit(true);
+  };
+
+  const closeEdit = () => {
+    setShowEdit(false);
+    setEditExemplar(null);
+  };
+
+  const handleSaveEdit = async (updatedExemplar: SignData) => {
+    if (!updatedExemplar || isUpdating) return;
+
+    setIsUpdating(true);
+    try {
+      const { error } = await supabase
+        .from('signs')
+        .update({
+          name: updatedExemplar.name,
+          description: updatedExemplar.description,
+          difficulty: updatedExemplar.difficulty,
+          category: updatedExemplar.category,
+          tags: updatedExemplar.tags,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', updatedExemplar.id);
+
+      if (error) {
+        throw error;
+      }
+
+      // Update the local signs array
+      setSigns(prevSigns => 
+        prevSigns.map(sign => 
+          sign.id === updatedExemplar.id 
+            ? { ...sign, ...updatedExemplar, updated_at: new Date().toISOString() }
+            : sign
+        )
+      );
+
+      closeEdit();
+      alert('Exemplar updated successfully!');
+    } catch (error) {
+      console.error('Error updating exemplar:', error);
+      alert('Failed to update exemplar. Please try again.');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  // Handler for exemplar re-recording
+  const handleRerecordExemplar = (sign: SignData) => {
+    setRerecordExemplar(sign);
+    setShowRerecord(true);
+    setNewRecordingData({blob: null, landmarks: []});
+  };
+
+  const closeRerecord = () => {
+    setShowRerecord(false);
+    setRerecordExemplar(null);
+    setNewRecordingData({blob: null, landmarks: []});
+  };
+
+  const handleNewRecording = (blob: Blob, landmarks: HandLandmarkFrame[]) => {
+    setNewRecordingData({blob, landmarks});
+  };
+
+  const handleReplaceExemplar = async () => {
+    if (!rerecordExemplar || !newRecordingData.blob || !newRecordingData.landmarks.length || isUpdating) {
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      // Create the new landmark data structure
+      const newLandmarkData = {
+        frames: newRecordingData.landmarks,
+        startTime: 0,
+        endTime: newRecordingData.landmarks.length * 33, // Assume ~30fps
+        duration: newRecordingData.landmarks.length * 33
+      };
+
+      // Update the exemplar in the database
+      const { error } = await supabase
+        .from('signs')
+        .update({
+          landmarks: newLandmarkData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', rerecordExemplar.id);
+
+      if (error) {
+        throw error;
+      }
+
+      // Update the local signs array
+      setSigns(prevSigns => 
+        prevSigns.map(sign => 
+          sign.id === rerecordExemplar.id 
+            ? { ...sign, landmarks: newLandmarkData, updated_at: new Date().toISOString() }
+            : sign
+        )
+      );
+
+      closeRerecord();
+      alert('Exemplar re-recorded successfully!');
+    } catch (error) {
+      console.error('Error replacing exemplar:', error);
+      alert('Failed to replace exemplar. Please try again.');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
 
 
@@ -593,13 +1224,22 @@ export function TeacherDashboard() {
                       Last updated: {new Date(sign.updated_at).toLocaleDateString()}
                     </p>
                     <div className="flex space-x-2">
-                      <button className="text-blue-600 hover:text-blue-800 text-sm">
+                      <button 
+                        onClick={() => handleEditExemplar(sign)}
+                        className="text-blue-600 hover:text-blue-800 text-sm"
+                      >
                         Edit
                       </button>
-                      <button className="text-green-600 hover:text-green-800 text-sm">
+                      <button 
+                        onClick={() => handlePreviewExemplar(sign)}
+                        className="text-green-600 hover:text-green-800 text-sm"
+                      >
                         Preview
                       </button>
-                      <button className="text-red-600 hover:text-red-800 text-sm">
+                      <button 
+                        onClick={() => handleRerecordExemplar(sign)}
+                        className="text-red-600 hover:text-red-800 text-sm"
+                      >
                         Re-record
                       </button>
                     </div>
@@ -1047,6 +1687,107 @@ export function TeacherDashboard() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Exemplar Re-record Modal */}
+        {showRerecord && rerecordExemplar && (
+          <ExemplarRerecorder
+            originalExemplar={rerecordExemplar}
+            newRecordingData={newRecordingData}
+            onNewRecording={handleNewRecording}
+            onReplace={handleReplaceExemplar}
+            onCancel={closeRerecord}
+            isUpdating={isUpdating}
+          />
+        )}
+
+        {/* Exemplar Edit Modal */}
+        {showEdit && editExemplar && (
+          <ExemplarEditForm
+            exemplar={editExemplar}
+            onSave={handleSaveEdit}
+            onCancel={closeEdit}
+            isUpdating={isUpdating}
+          />
+        )}
+
+        {/* Exemplar Preview Modal */}
+        {showPreview && previewExemplar && (
+          <div className="fixed inset-0 z-50 overflow-y-auto">
+            <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+              {/* Background overlay */}
+              <div 
+                className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
+                onClick={closePreview}
+              ></div>
+
+              {/* Modal content */}
+              <div className="inline-block w-full max-w-4xl p-6 my-8 overflow-hidden text-left align-middle transition-all transform bg-white shadow-xl rounded-lg">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-medium text-gray-900">
+                    Preview: {previewExemplar.name}
+                  </h3>
+                  <button
+                    onClick={closePreview}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                {/* Content */}
+                <div className="space-y-4">
+                  {/* Metadata */}
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="font-medium text-gray-700">Frames:</span>
+                        <span className="ml-2 text-gray-600">
+                          {previewExemplar.landmarks?.frames?.length || 0}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700">Last updated:</span>
+                        <span className="ml-2 text-gray-600">
+                          {new Date(previewExemplar.updated_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Landmark visualization */}
+                  {previewExemplar.landmarks?.frames?.length > 0 ? (
+                    <ExemplarLandmarkViewer landmarks={previewExemplar.landmarks.frames} />
+                  ) : (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <p className="text-yellow-800 text-center">
+                        No landmark data available for this exemplar
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex justify-end space-x-3 pt-4 border-t">
+                    <button
+                      onClick={closePreview}
+                      className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200"
+                    >
+                      Close
+                    </button>
+                    <button className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700">
+                      Edit
+                    </button>
+                    <button className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700">
+                      Re-record
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
