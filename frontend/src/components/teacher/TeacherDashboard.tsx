@@ -524,6 +524,7 @@ interface StudentData {
   institution?: string;
   created_at: string;
   total_attempts: number;
+  signs_practiced: number;
   avg_score: number;
   high_score_count?: number;
   best_score?: number;
@@ -806,6 +807,10 @@ export function TeacherDashboard() {
 
             const total_attempts = allAttempts?.length || 0;
             
+            // Calculate unique signs practiced
+            const uniqueSignIds = new Set(allAttempts?.map(attempt => attempt.sign_id) || []);
+            const signs_practiced = uniqueSignIds.size;
+            
             // Calculate comprehensive statistics using utility functions
             const statistics = getScoreStatistics(allAttempts || []);
 
@@ -824,6 +829,7 @@ export function TeacherDashboard() {
             return {
               ...student,
               total_attempts,
+              signs_practiced,
               avg_score: statistics.averageScore,
               high_score_count: statistics.highScoreCount,
               best_score: statistics.bestScore,
@@ -1213,7 +1219,7 @@ export function TeacherDashboard() {
                   <div key={student.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
                     <div>
                       <p className="font-medium text-gray-900">{student.full_name}</p>
-                      <p className="text-sm text-gray-500">{student.total_attempts} practice attempts</p>
+                      <p className="text-sm text-gray-500">{student.signs_practiced} signs practiced • {student.total_attempts} attempts</p>
                     </div>
                     <div className="text-right">
                       <p className="font-medium text-gray-900">{student.avg_score}%</p>
@@ -1317,7 +1323,7 @@ export function TeacherDashboard() {
                       Institution
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Attempts
+                      Signs Practiced
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Avg Score
@@ -1337,7 +1343,7 @@ export function TeacherDashboard() {
                         {student.institution || 'Not specified'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {student.total_attempts}
+                        {student.signs_practiced}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
@@ -1392,7 +1398,11 @@ export function TeacherDashboard() {
 
               <div className="p-6">
                 {/* Student Stats */}
-                <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-4 gap-4 mb-6">
+                  <div className="bg-purple-50 p-4 rounded-lg text-center">
+                    <p className="text-2xl font-bold text-purple-600">{selectedStudent.signs_practiced}</p>
+                    <p className="text-sm text-purple-800">Signs Practiced</p>
+                  </div>
                   <div className="bg-blue-50 p-4 rounded-lg text-center">
                     <p className="text-2xl font-bold text-blue-600">{selectedStudent.total_attempts}</p>
                     <p className="text-sm text-blue-800">Total Attempts</p>
