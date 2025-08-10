@@ -47,15 +47,73 @@ CREATE TABLE IF NOT EXISTS feedback_notifications (
 -- 4. Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_feedback_attempt_id ON feedback(attempt_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_teacher_id ON feedback(teacher_id);
-CREATE INDEX IF NOT EXISTS idx_feedback_category ON feedback(category);
-CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at);
 CREATE INDEX IF NOT EXISTS idx_feedback_timestamp ON feedback(timestamp_seconds);
-
 CREATE INDEX IF NOT EXISTS idx_feedback_templates_teacher_id ON feedback_templates(teacher_id);
-CREATE INDEX IF NOT EXISTS idx_feedback_templates_category ON feedback_templates(category);
-
 CREATE INDEX IF NOT EXISTS idx_feedback_notifications_student_id ON feedback_notifications(student_id);
-CREATE INDEX IF NOT EXISTS idx_feedback_notifications_read_at ON feedback_notifications(read_at);
+CREATE INDEX IF NOT EXISTS idx_feedback_notifications_unread ON feedback_notifications(student_id, read_at) WHERE read_at IS NULL;
+
+-- 5. Create RLS policies
+-- Feedback policies
+CREATE POLICY "Teachers can view all feedback" ON feedback
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND role = 'teacher'
+        )
+    );
+
+CREATE POLICY "Students can view feedback on own attempts" ON feedback
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM attempts
+            WHERE attempts.id = feedback.attempt_id
+            AND attempts.student_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Teachers can insert feedback" ON feedback
+    FOR INSERT WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND role = 'teacher'
+        )
+        AND teacher_id = auth.uid()
+    );
+
+CREATE POLICY "Teachers can update own feedback" ON feedback
+    FOR UPDATE USING (teacher_id = auth.uid());
+
+CREATE POLICY "Teachers can delete own feedback" ON feedback
+    FOR DELETE USING (teacher_id = auth.uid());
+
+-- Feedback templates policies
+CREATE POLICY "Teachers can manage own templates" ON feedback_templates
+    FOR ALL USING (teacher_id = auth.uid());
+
+-- Feedback notifications policies
+CREATE POLICY "Students can view own notifications" ON feedback_notifications
+    FOR SELECT USING (student_id = auth.uid());
+
+CREATE POLICY "Students can update own notifications" ON feedback_notifications
+    FOR UPDATE USING (student_id = auth.uid());
+
+-- 6. Create function to increment template usage
+CREATE OR REPLACE FUNCTION increment_template_usage(template_id UUID)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE feedback_templates 
+    SET usage_count = usage_count + 1,
+        updated_at = NOW()
+    WHERE id = template_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 7. Enable RLS
+ALTER TABLE feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feedback_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feedback_notifications ENABLE ROW LEVEL SECURITY;
 
 -- 5. Create updated_at trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()

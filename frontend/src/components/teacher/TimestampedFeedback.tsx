@@ -1,13 +1,11 @@
 import React, { useState, useRef, useCallback } from 'react';
+import { type FeedbackItem } from '../../services/feedbackService';
 
-interface FeedbackItem {
-  id: string;
-  timestamp: number;
+interface CreateFeedbackData {
+  content: string;
+  timestamp_seconds: number;
   category: 'shape' | 'location' | 'movement' | 'general';
   severity: 'low' | 'medium' | 'high';
-  content: string;
-  created_at: string;
-  teacher_id: string;
   area_coordinates?: { x: number; y: number; width: number; height: number };
 }
 
@@ -16,8 +14,8 @@ interface TimestampedFeedbackProps {
   videoDuration: number;
   currentTime: number;
   feedbackItems: FeedbackItem[];
-  onAddFeedback: (feedback: Omit<FeedbackItem, 'id' | 'created_at' | 'teacher_id'>) => Promise<void>;
-  onUpdateFeedback: (id: string, updates: Partial<FeedbackItem>) => Promise<void>;
+  onAddFeedback: (feedback: CreateFeedbackData) => Promise<void>;
+  onUpdateFeedback: (id: string, updates: Partial<CreateFeedbackData>) => Promise<void>;
   onDeleteFeedback: (id: string) => Promise<void>;
   onSeekToTimestamp: (timestamp: number) => void;
   readOnly?: boolean;
@@ -37,7 +35,7 @@ export const TimestampedFeedback: React.FC<TimestampedFeedbackProps> = ({
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newFeedback, setNewFeedback] = useState({
-    timestamp: currentTime,
+    timestamp_seconds: currentTime,
     category: 'general' as const,
     severity: 'medium' as const,
     content: '',
@@ -61,7 +59,7 @@ export const TimestampedFeedback: React.FC<TimestampedFeedbackProps> = ({
     try {
       await onAddFeedback(newFeedback);
       setNewFeedback({
-        timestamp: currentTime,
+        timestamp_seconds: currentTime,
         category: 'general',
         severity: 'medium',
         content: '',
@@ -124,7 +122,7 @@ export const TimestampedFeedback: React.FC<TimestampedFeedbackProps> = ({
   }, []);
 
   // Sort feedback by timestamp
-  const sortedFeedback = [...feedbackItems].sort((a, b) => a.timestamp - b.timestamp);
+  const sortedFeedback = [...feedbackItems].sort((a, b) => a.timestamp_seconds - b.timestamp_seconds);
 
   return (
     <div className="space-y-4">
@@ -156,15 +154,15 @@ export const TimestampedFeedback: React.FC<TimestampedFeedbackProps> = ({
                   step="0.1"
                   min="0"
                   max={videoDuration}
-                  value={newFeedback.timestamp}
+                  value={newFeedback.timestamp_seconds}
                   onChange={(e) => setNewFeedback(prev => ({
                     ...prev,
-                    timestamp: Number(e.target.value)
+                    timestamp_seconds: Number(e.target.value)
                   }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <div className="text-xs text-gray-500 mt-1">
-                  {formatTimestamp(newFeedback.timestamp)}
+                  {formatTimestamp(newFeedback.timestamp_seconds)}
                 </div>
               </div>
 
@@ -272,11 +270,11 @@ export const TimestampedFeedback: React.FC<TimestampedFeedbackProps> = ({
                   <div className="flex items-start justify-between">
                     <div className="flex items-center space-x-2">
                       <button
-                        onClick={() => onSeekToTimestamp(feedback.timestamp)}
+                        onClick={() => onSeekToTimestamp(feedback.timestamp_seconds)}
                         className="text-blue-600 hover:text-blue-800 font-mono text-sm font-medium"
                         title="Jump to this timestamp"
                       >
-                        {formatTimestamp(feedback.timestamp)}
+                        {formatTimestamp(feedback.timestamp_seconds)}
                       </button>
                       <span className={`px-2 py-1 text-xs rounded-full border ${getCategoryColor(feedback.category)}`}>
                         {feedback.category}
@@ -329,10 +327,10 @@ export const TimestampedFeedback: React.FC<TimestampedFeedbackProps> = ({
             {sortedFeedback.map((feedback) => (
               <button
                 key={feedback.id}
-                onClick={() => onSeekToTimestamp(feedback.timestamp)}
+                onClick={() => onSeekToTimestamp(feedback.timestamp_seconds)}
                 className={`px-2 py-1 text-xs rounded border hover:bg-white transition-colors ${getCategoryColor(feedback.category)}`}
               >
-                {formatTimestamp(feedback.timestamp)}
+                {formatTimestamp(feedback.timestamp_seconds)}
               </button>
             ))}
           </div>
@@ -357,7 +355,7 @@ const EditFeedbackForm: React.FC<EditFeedbackFormProps> = ({
   onCancel
 }) => {
   const [editData, setEditData] = useState({
-    timestamp: feedback.timestamp,
+    timestamp_seconds: feedback.timestamp_seconds,
     category: feedback.category,
     severity: feedback.severity,
     content: feedback.content
@@ -387,15 +385,15 @@ const EditFeedbackForm: React.FC<EditFeedbackFormProps> = ({
             step="0.1"
             min="0"
             max={videoDuration}
-            value={editData.timestamp}
+            value={editData.timestamp_seconds}
             onChange={(e) => setEditData(prev => ({
               ...prev,
-              timestamp: Number(e.target.value)
+              timestamp_seconds: Number(e.target.value)
             }))}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <div className="text-xs text-gray-500 mt-1">
-            {formatTimestamp(editData.timestamp)}
+            {formatTimestamp(editData.timestamp_seconds)}
           </div>
         </div>
 

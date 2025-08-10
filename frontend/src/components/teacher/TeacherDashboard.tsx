@@ -4,8 +4,15 @@ import { supabase } from '../../config/supabase';
 import { ReferenceRecorder } from '../signs/ReferenceRecorder';
 import { VideoReviewPlayer } from './VideoReviewPlayer';
 import { TimestampedFeedback } from './TimestampedFeedback';
+import { FeedbackService, type FeedbackItem } from '../../services/feedbackService';
+import { 
+  calculateOverallScore, 
+  getScoreStatistics,
+  categorizeScore,
+  formatScore
+} from '../../utils/scoreCalculation';
 
-type DashboardView = 'overview' | 'exemplars' | 'students' | 'analytics' | 'video-review' | 'feedback-templates';
+type DashboardView = 'overview' | 'exemplars' | 'students' | 'analytics' | 'video-review';
 
 interface SignData {
   id: string;
@@ -22,6 +29,9 @@ interface StudentData {
   created_at: string;
   total_attempts: number;
   avg_score: number;
+  high_score_count?: number;
+  best_score?: number;
+  improvement_trend?: number;
   recent_attempts?: StudentAttempt[];
 }
 
@@ -58,29 +68,16 @@ export function TeacherDashboard() {
   // Student-specific video review state
   const [studentAttempts, setStudentAttempts] = useState<StudentAttempt[]>([]);
   const [selectedStudentAttempt, setSelectedStudentAttempt] = useState<StudentAttempt | null>(null);
+  
+  // Feedback state
+  const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
+  const [loadingFeedback, setLoadingFeedback] = useState(false);
 
   useEffect(() => {
     loadDashboardData();
   }, []);
 
-  const fixTeacherRole = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      // Update the profile role to teacher
-      const { error } = await supabase
-        .from('profiles')
-        .update({ role: 'teacher' })
-        .eq('id', user.id);
-      
-      if (error) {
-        console.error('Failed to update role:', error);
-      } else {
-        console.log('Successfully updated role to teacher');
-        // Reload the page to refresh the session
-        window.location.reload();
-      }
-    }
-  };
+
 
   const loadDashboardData = async () => {
     setLoading(true);
@@ -141,8 +138,23 @@ export function TeacherDashboard() {
         // Get real attempt statistics for each student
         const studentsWithStats = await Promise.all(
           finalStudentsData.map(async (student) => {
-            // Get student's attempts with sign names
-            const { data: attempts } = await supabase
+            // Get ALL student's attempts for accurate statistics
+            const { data: allAttempts } = await supabase
+              .from('attempts')
+              .select(`
+                id,
+                sign_id,
+                score_shape,
+                score_location,
+                score_movement,
+                created_at,
+                video_url
+              `)
+              .eq('student_id', student.id)
+              .order('created_at', { ascending: false });
+
+            // Get recent 5 attempts with sign names for preview
+            const { data: recentAttemptsData } = await supabase
               .from('attempts')
               .select(`
                 id,
@@ -158,25 +170,15 @@ export function TeacherDashboard() {
               `)
               .eq('student_id', student.id)
               .order('created_at', { ascending: false })
-              .limit(5); // Get recent 5 attempts for preview
+              .limit(5);
 
-            const total_attempts = attempts?.length || 0;
+            const total_attempts = allAttempts?.length || 0;
             
-            // Calculate average score from attempts with valid scores
-            const validScores = attempts?.filter(attempt => 
-              attempt.score_shape && attempt.score_location && attempt.score_movement
-            ) || [];
+            // Calculate comprehensive statistics using utility functions
+            const statistics = getScoreStatistics(allAttempts || []);
             
-            const avg_score = validScores.length > 0 
-              ? Math.round(
-                  validScores.reduce((sum, attempt) => 
-                    sum + (attempt.score_shape + attempt.score_location + attempt.score_movement) / 3, 0
-                  ) / validScores.length
-                )
-              : 0;
-
             // Format recent attempts
-            const recent_attempts: StudentAttempt[] = attempts?.map(attempt => ({
+            const recent_attempts: StudentAttempt[] = recentAttemptsData?.map(attempt => ({
               id: attempt.id,
               sign_id: attempt.sign_id,
               sign_name: (attempt.signs as any)?.name || 'Unknown Sign',
@@ -190,7 +192,10 @@ export function TeacherDashboard() {
             return {
               ...student,
               total_attempts,
-              avg_score,
+              avg_score: statistics.averageScore,
+              high_score_count: statistics.highScoreCount,
+              best_score: statistics.bestScore,
+              improvement_trend: statistics.improvementTrend,
               recent_attempts
             };
           })
@@ -221,12 +226,7 @@ export function TeacherDashboard() {
   };
 
 
-  const calculateOverallScore = (attempt: StudentAttempt) => {
-    if (!attempt.score_shape || !attempt.score_location || !attempt.score_movement) {
-      return null;
-    }
-    return Math.round((attempt.score_shape + attempt.score_location + attempt.score_movement) / 3);
-  };
+
 
   // Load recent attempts for video review
   const loadRecentAttempts = async () => {
@@ -303,6 +303,13 @@ export function TeacherDashboard() {
     }
   }, [currentView]);
 
+  // Load feedback when an attempt is selected
+  useEffect(() => {
+    if (selectedStudentAttempt) {
+      loadFeedbackForAttempt(selectedStudentAttempt.id);
+    }
+  }, [selectedStudentAttempt]);
+
   // Load specific student attempts for video review
   const loadStudentAttempts = async (studentId: string) => {
     try {
@@ -364,6 +371,75 @@ export function TeacherDashboard() {
     }
   };
 
+  // Feedback functions
+  const loadFeedbackForAttempt = async (attemptId: string) => {
+    setLoadingFeedback(true);
+    try {
+      const feedback = await FeedbackService.getFeedbackForAttempt(attemptId);
+      setFeedbackItems(feedback);
+    } catch (error) {
+      console.error('Error loading feedback:', error);
+      // If feedback table doesn't exist, show helpful message
+      if (error instanceof Error && error.message.includes('does not exist')) {
+        alert('Feedback system is not yet set up. Please run the database migrations first.');
+      }
+      setFeedbackItems([]);
+    } finally {
+      setLoadingFeedback(false);
+    }
+  };
+
+  const handleAddFeedback = async (feedbackData: any) => {
+    if (!selectedStudentAttempt) return;
+
+    try {
+      await FeedbackService.addFeedback({
+        attempt_id: selectedStudentAttempt.id,
+        ...feedbackData
+      });
+      
+      // Reload feedback
+      await loadFeedbackForAttempt(selectedStudentAttempt.id);
+      
+      // Update feedback count in studentAttempts
+      setStudentAttempts(prev => prev.map(attempt => 
+        attempt.id === selectedStudentAttempt.id 
+          ? { ...attempt, feedback_count: (attempt.feedback_count || 0) + 1 }
+          : attempt
+      ));
+    } catch (error) {
+      console.error('Error adding feedback:', error);
+      alert('Failed to add feedback. Please check database setup.');
+    }
+  };
+
+  const handleUpdateFeedback = async (feedbackId: string, updates: any) => {
+    try {
+      await FeedbackService.updateFeedback(feedbackId, updates);
+      await loadFeedbackForAttempt(selectedStudentAttempt!.id);
+    } catch (error) {
+      console.error('Error updating feedback:', error);
+      alert('Failed to update feedback.');
+    }
+  };
+
+  const handleDeleteFeedback = async (feedbackId: string) => {
+    try {
+      await FeedbackService.deleteFeedback(feedbackId);
+      await loadFeedbackForAttempt(selectedStudentAttempt!.id);
+      
+      // Update feedback count
+      setStudentAttempts(prev => prev.map(attempt => 
+        attempt.id === selectedStudentAttempt!.id 
+          ? { ...attempt, feedback_count: Math.max(0, (attempt.feedback_count || 0) - 1) }
+          : attempt
+      ));
+    } catch (error) {
+      console.error('Error deleting feedback:', error);
+      alert('Failed to delete feedback.');
+    }
+  };
+
   const NavButton = ({ view, children }: { view: DashboardView; children: React.ReactNode }) => (
     <button
       onClick={() => setCurrentView(view)}
@@ -415,17 +491,6 @@ export function TeacherDashboard() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Temporary fix for role */}
-        <div className="mb-4 bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
-          <p className="text-yellow-800">If you're seeing no students, your role might be incorrect.</p>
-          <button
-            onClick={fixTeacherRole}
-            className="mt-2 px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700"
-          >
-            Fix Teacher Role
-          </button>
-        </div>
-
         {/* Navigation */}
         <div className="flex flex-wrap gap-2 mb-8">
           <NavButton view="overview">📊 Overview</NavButton>
@@ -433,7 +498,6 @@ export function TeacherDashboard() {
           <NavButton view="students">👥 Student Progress</NavButton>
           <NavButton view="analytics">📈 Analytics</NavButton>
           <NavButton view="video-review">🎥 Video Review</NavButton>
-          <NavButton view="feedback-templates">💬 Feedback Templates</NavButton>
         </div>
 
         {/* Content */}
@@ -649,7 +713,7 @@ export function TeacherDashboard() {
                   </div>
                   <div className="bg-purple-50 p-4 rounded-lg text-center">
                     <p className="text-2xl font-bold text-purple-600">
-                      {selectedStudent.recent_attempts?.filter(a => calculateOverallScore(a) && calculateOverallScore(a)! >= 80).length || 0}
+                      {selectedStudent.high_score_count || 0}
                     </p>
                     <p className="text-sm text-purple-800">High Scores (80%+)</p>
                   </div>
@@ -778,19 +842,23 @@ export function TeacherDashboard() {
                     </div>
                     
                     {/* Scores display */}
-                    {selectedStudentAttempt.score_shape && selectedStudentAttempt.score_location && selectedStudentAttempt.score_movement && (
-                      <div className="grid grid-cols-3 gap-4">
+                    {calculateOverallScore(selectedStudentAttempt) !== null && (
+                      <div className="grid grid-cols-4 gap-4">
                         <div className="text-center p-4 bg-blue-50 rounded-lg">
-                          <div className="text-2xl font-bold text-blue-600">{selectedStudentAttempt.score_shape}%</div>
+                          <div className="text-2xl font-bold text-blue-600">{formatScore(selectedStudentAttempt.score_shape)}</div>
                           <div className="text-sm text-blue-800">Hand Shape</div>
                         </div>
                         <div className="text-center p-4 bg-green-50 rounded-lg">
-                          <div className="text-2xl font-bold text-green-600">{selectedStudentAttempt.score_location}%</div>
+                          <div className="text-2xl font-bold text-green-600">{formatScore(selectedStudentAttempt.score_location)}</div>
                           <div className="text-sm text-green-800">Location</div>
                         </div>
                         <div className="text-center p-4 bg-purple-50 rounded-lg">
-                          <div className="text-2xl font-bold text-purple-600">{selectedStudentAttempt.score_movement}%</div>
+                          <div className="text-2xl font-bold text-purple-600">{formatScore(selectedStudentAttempt.score_movement)}</div>
                           <div className="text-sm text-purple-800">Movement</div>
+                        </div>
+                        <div className={`text-center p-4 rounded-lg ${categorizeScore(calculateOverallScore(selectedStudentAttempt)).color}`}>
+                          <div className="text-2xl font-bold">{formatScore(calculateOverallScore(selectedStudentAttempt))}</div>
+                          <div className="text-sm">Overall</div>
                         </div>
                       </div>
                     )}
@@ -811,24 +879,20 @@ export function TeacherDashboard() {
 
                     {/* Feedback Section */}
                     <div>
-                      <h5 className="text-md font-medium text-gray-900 mb-3">Provide Feedback</h5>
+                      <h5 className="text-md font-medium text-gray-900 mb-3">
+                        Provide Feedback
+                        {loadingFeedback && (
+                          <span className="ml-2 text-sm text-gray-500">(Loading...)</span>
+                        )}
+                      </h5>
                       <TimestampedFeedback
                         attemptId={selectedStudentAttempt.id}
                         videoDuration={0}
                         currentTime={currentVideoTime}
-                        feedbackItems={[]}
-                        onAddFeedback={async (feedback) => {
-                          console.log('Adding feedback for student:', selectedStudentAttempt.student_name, feedback);
-                          // TODO: Implement feedback saving
-                        }}
-                        onUpdateFeedback={async (id, feedback) => {
-                          console.log('Updating feedback:', id, feedback);
-                          // TODO: Implement feedback updating
-                        }}
-                        onDeleteFeedback={async (id) => {
-                          console.log('Deleting feedback:', id);
-                          // TODO: Implement feedback deletion
-                        }}
+                        feedbackItems={feedbackItems}
+                        onAddFeedback={handleAddFeedback}
+                        onUpdateFeedback={handleUpdateFeedback}
+                        onDeleteFeedback={handleDeleteFeedback}
                         onSeekToTimestamp={(timestamp) => {
                           setCurrentVideoTime(timestamp);
                         }}
@@ -907,16 +971,19 @@ export function TeacherDashboard() {
                               {attempt.sign_name}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {attempt.score_shape && attempt.score_location && attempt.score_movement ? (
+                              {calculateOverallScore(attempt) !== null ? (
                                 <div className="flex space-x-1">
                                   <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                                    S: {attempt.score_shape}%
+                                    S: {formatScore(attempt.score_shape)}
                                   </span>
                                   <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
-                                    L: {attempt.score_location}%
+                                    L: {formatScore(attempt.score_location)}
                                   </span>
                                   <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-purple-100 text-purple-800">
-                                    M: {attempt.score_movement}%
+                                    M: {formatScore(attempt.score_movement)}
+                                  </span>
+                                  <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${categorizeScore(calculateOverallScore(attempt)).color}`}>
+                                    Overall: {formatScore(calculateOverallScore(attempt))}
                                   </span>
                                 </div>
                               ) : (
@@ -991,19 +1058,23 @@ export function TeacherDashboard() {
                   </div>
                   
                   {/* Scores display */}
-                  {selectedAttempt.score_shape && selectedAttempt.score_location && selectedAttempt.score_movement && (
-                    <div className="grid grid-cols-3 gap-4 mb-6">
+                  {calculateOverallScore(selectedAttempt) !== null && (
+                    <div className="grid grid-cols-4 gap-4 mb-6">
                       <div className="text-center p-4 bg-blue-50 rounded-lg">
-                        <div className="text-2xl font-bold text-blue-600">{selectedAttempt.score_shape}%</div>
+                        <div className="text-2xl font-bold text-blue-600">{formatScore(selectedAttempt.score_shape)}</div>
                         <div className="text-sm text-blue-800">Hand Shape</div>
                       </div>
                       <div className="text-center p-4 bg-green-50 rounded-lg">
-                        <div className="text-2xl font-bold text-green-600">{selectedAttempt.score_location}%</div>
+                        <div className="text-2xl font-bold text-green-600">{formatScore(selectedAttempt.score_location)}</div>
                         <div className="text-sm text-green-800">Location</div>
                       </div>
                       <div className="text-center p-4 bg-purple-50 rounded-lg">
-                        <div className="text-2xl font-bold text-purple-600">{selectedAttempt.score_movement}%</div>
+                        <div className="text-2xl font-bold text-purple-600">{formatScore(selectedAttempt.score_movement)}</div>
                         <div className="text-sm text-purple-800">Movement</div>
+                      </div>
+                      <div className={`text-center p-4 rounded-lg ${categorizeScore(calculateOverallScore(selectedAttempt)).color}`}>
+                        <div className="text-2xl font-bold">{formatScore(calculateOverallScore(selectedAttempt))}</div>
+                        <div className="text-sm">Overall</div>
                       </div>
                     </div>
                   )}
@@ -1053,29 +1124,7 @@ export function TeacherDashboard() {
           </div>
         )}
 
-        {currentView === 'feedback-templates' && (
-          <div className="bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Feedback Templates</h3>
-              <p className="text-sm text-gray-600">Create and manage reusable feedback templates</p>
-            </div>
-            
-            <div className="p-6">
-              <div className="text-center py-12 text-gray-500">
-                <div className="text-6xl mb-4">💬</div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Feedback Templates</h3>
-                <p className="mb-4">Create pre-written feedback for common corrections and praise.</p>
-                <p className="text-sm">This feature will help you provide consistent, helpful feedback faster.</p>
-                
-                <div className="mt-8">
-                  <button className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-                    Create Template
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+
       </div>
     </div>
   );
