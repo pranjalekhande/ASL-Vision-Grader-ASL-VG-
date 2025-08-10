@@ -235,34 +235,15 @@ function App() {
     }
   }
 
-  // Main app for authenticated users
+  // Main app for authenticated users - each dashboard handles its own header
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header with user info and sign out */}
-      <div className="bg-white shadow">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-gray-900">
-            ASL Vision Grader - {isTeacher() ? 'Teacher' : 'Student'} Mode
-          </h1>
-          <div className="flex items-center space-x-4">
-            <span className="text-gray-600">{user.email}</span>
-            <button
-              onClick={signOut}
-              className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-            >
-              Sign Out
-            </button>
-          </div>
-        </div>
-      </div>
-      
-      {/* Route to appropriate dashboard */}
+    <>
       {isTeacher() ? (
         <TeacherRouter />
       ) : (
         <StudentDashboard />
       )}
-    </div>
+    </>
   );
 }
 
