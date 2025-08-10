@@ -54,6 +54,10 @@ export function TeacherDashboard() {
   const [recentAttempts, setRecentAttempts] = useState<StudentAttempt[]>([]);
   const [selectedAttempt, setSelectedAttempt] = useState<StudentAttempt | null>(null);
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
+  
+  // Student-specific video review state
+  const [studentAttempts, setStudentAttempts] = useState<StudentAttempt[]>([]);
+  const [selectedStudentAttempt, setSelectedStudentAttempt] = useState<StudentAttempt | null>(null);
 
   useEffect(() => {
     loadDashboardData();
@@ -211,6 +215,9 @@ export function TeacherDashboard() {
   const handleStudentClick = (student: StudentData) => {
     setSelectedStudent(student);
     setShowStudentDetail(true);
+    setSelectedStudentAttempt(null); // Reset video review selection
+    // Load student attempts for video review
+    loadStudentAttempts(student.id);
   };
 
 
@@ -295,6 +302,67 @@ export function TeacherDashboard() {
       loadRecentAttempts();
     }
   }, [currentView]);
+
+  // Load specific student attempts for video review
+  const loadStudentAttempts = async (studentId: string) => {
+    try {
+      const { data: attempts, error } = await supabase
+        .from('attempts')
+        .select(`
+          id,
+          student_id,
+          sign_id,
+          score_shape,
+          score_location,
+          score_movement,
+          created_at,
+          video_url,
+          landmarks
+        `)
+        .eq('student_id', studentId)
+        .order('created_at', { ascending: false })
+        .limit(50); // Get more attempts for individual student
+
+      if (error) throw error;
+
+      if (attempts) {
+        // Fetch sign names for each attempt
+        const attemptsWithDetails = await Promise.all(
+          attempts.map(async (attempt) => {
+            // Get sign name
+            const { data: signData } = await supabase
+              .from('signs')
+              .select('name')
+              .eq('id', attempt.sign_id)
+              .single();
+
+            // Get feedback count (if feedback table exists)
+            let feedbackCount = 0;
+            try {
+              const { data: feedbackData } = await supabase
+                .from('feedback')
+                .select('id')
+                .eq('attempt_id', attempt.id);
+              feedbackCount = feedbackData?.length || 0;
+            } catch (feedbackError) {
+              // Feedback table might not exist yet
+            }
+
+            return {
+              ...attempt,
+              student_name: selectedStudent?.full_name || 'Unknown Student',
+              sign_name: signData?.name || 'Unknown Sign',
+              feedback_count: feedbackCount
+            };
+          })
+        );
+
+        setStudentAttempts(attemptsWithDetails);
+      }
+    } catch (error) {
+      console.error('Error loading student attempts:', error);
+    }
+  };
 
   const NavButton = ({ view, children }: { view: DashboardView; children: React.ReactNode }) => (
     <button
@@ -587,67 +655,187 @@ export function TeacherDashboard() {
                   </div>
                 </div>
 
-                {/* Recent Attempts */}
-                <div>
-                  <h4 className="text-lg font-semibold mb-4">Recent Attempts</h4>
-                  {selectedStudent.recent_attempts && selectedStudent.recent_attempts.length > 0 ? (
-                    <div className="space-y-3">
-                      {selectedStudent.recent_attempts.map(attempt => {
-                        const overallScore = calculateOverallScore(attempt);
-                        return (
-                          <div key={attempt.id} className="border rounded-lg p-4 hover:bg-gray-50">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <h5 className="font-medium text-gray-900">{attempt.sign_name}</h5>
-                                <p className="text-sm text-gray-500">
-                                  {new Date(attempt.created_at).toLocaleDateString()} at{' '}
-                                  {new Date(attempt.created_at).toLocaleTimeString()}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                {overallScore !== null ? (
-                                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                                    overallScore >= 80 
-                                      ? 'bg-green-100 text-green-800'
-                                      : overallScore >= 60
-                                      ? 'bg-yellow-100 text-yellow-800'
-                                      : 'bg-red-100 text-red-800'
-                                  }`}>
-                                    {overallScore}%
-                                  </span>
-                                ) : (
-                                  <span className="text-sm text-gray-500">No scores</span>
-                                )}
-                              </div>
-                            </div>
+                {/* Video Review Section */}
+                {!selectedStudentAttempt ? (
+                  <div>
+                    <h4 className="text-lg font-semibold mb-4">All Attempts with Video Review</h4>
+                    
+                    {studentAttempts && studentAttempts.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sign</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scores</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feedback</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {studentAttempts.map((attempt) => {
+                              const overallScore = calculateOverallScore(attempt);
+                              return (
+                                <tr key={attempt.id} className="hover:bg-gray-50">
+                                  <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                    {attempt.sign_name}
+                                  </td>
+                                  <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    {overallScore !== null ? (
+                                      <div className="flex flex-col space-y-1">
+                                        <span className={`inline-flex px-2 py-1 rounded text-xs font-medium ${
+                                          overallScore >= 80 
+                                            ? 'bg-green-100 text-green-800'
+                                            : overallScore >= 60
+                                            ? 'bg-yellow-100 text-yellow-800'
+                                            : 'bg-red-100 text-red-800'
+                                        }`}>
+                                          Overall: {overallScore}%
+                                        </span>
+                                        <div className="flex space-x-1 text-xs">
+                                          <span className="text-blue-600">S:{attempt.score_shape}%</span>
+                                          <span className="text-green-600">L:{attempt.score_location}%</span>
+                                          <span className="text-purple-600">M:{attempt.score_movement}%</span>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <span className="text-gray-400">No scores</span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    <div>
+                                      <div>{new Date(attempt.created_at).toLocaleDateString()}</div>
+                                      <div className="text-xs text-gray-400">
+                                        {new Date(attempt.created_at).toLocaleTimeString()}
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    {attempt.video_url ? (
+                                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                        ✓ Available
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                        ✗ Missing
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                      {attempt.feedback_count || 0} comments
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
+                                    <button
+                                      onClick={() => setSelectedStudentAttempt(attempt)}
+                                      disabled={!attempt.video_url}
+                                      className={`${
+                                        attempt.video_url
+                                          ? 'text-blue-600 hover:text-blue-900'
+                                          : 'text-gray-400 cursor-not-allowed'
+                                      }`}
+                                    >
+                                      Review Video
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500">
+                        <p>Loading student attempts...</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Back Button - Prominent */}
+                    <div className="border-b border-gray-200 pb-4">
+                      <button
+                        onClick={() => setSelectedStudentAttempt(null)}
+                        className="flex items-center px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
+                      >
+                        <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
+                        </svg>
+                        Back to All Attempts
+                      </button>
+                    </div>
+                    
+                    {/* Video Review Header */}
+                    <div className="text-center">
+                      <h4 className="text-xl font-bold text-gray-900">
+                        {selectedStudentAttempt.sign_name} - Video Review
+                      </h4>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {selectedStudent?.full_name} • Recorded on {new Date(selectedStudentAttempt.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    
+                    {/* Scores display */}
+                    {selectedStudentAttempt.score_shape && selectedStudentAttempt.score_location && selectedStudentAttempt.score_movement && (
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="text-center p-4 bg-blue-50 rounded-lg">
+                          <div className="text-2xl font-bold text-blue-600">{selectedStudentAttempt.score_shape}%</div>
+                          <div className="text-sm text-blue-800">Hand Shape</div>
+                        </div>
+                        <div className="text-center p-4 bg-green-50 rounded-lg">
+                          <div className="text-2xl font-bold text-green-600">{selectedStudentAttempt.score_location}%</div>
+                          <div className="text-sm text-green-800">Location</div>
+                        </div>
+                        <div className="text-center p-4 bg-purple-50 rounded-lg">
+                          <div className="text-2xl font-bold text-purple-600">{selectedStudentAttempt.score_movement}%</div>
+                          <div className="text-sm text-purple-800">Movement</div>
+                        </div>
+                      </div>
+                    )}
 
-                            {/* Detailed Scores */}
-                            {overallScore !== null && (
-                              <div className="mt-3 grid grid-cols-3 gap-4">
-                                <div className="text-center">
-                                  <p className="text-sm text-gray-600">Shape</p>
-                                  <p className="font-medium text-blue-600">{attempt.score_shape}%</p>
-                                </div>
-                                <div className="text-center">
-                                  <p className="text-sm text-gray-600">Location</p>
-                                  <p className="font-medium text-green-600">{attempt.score_location}%</p>
-                                </div>
-                                <div className="text-center">
-                                  <p className="text-sm text-gray-600">Movement</p>
-                                  <p className="font-medium text-purple-600">{attempt.score_movement}%</p>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                    {/* Video Player */}
+                    {selectedStudentAttempt.video_url && (
+                      <div>
+                        <h5 className="text-md font-medium text-gray-900 mb-3">Student Video</h5>
+                        <VideoReviewPlayer
+                          videoUrl={selectedStudentAttempt.video_url}
+                          landmarks={selectedStudentAttempt.landmarks?.frames || []}
+                          onFrameChange={(_, timestamp) => {
+                            setCurrentVideoTime(timestamp);
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Feedback Section */}
+                    <div>
+                      <h5 className="text-md font-medium text-gray-900 mb-3">Provide Feedback</h5>
+                      <TimestampedFeedback
+                        attemptId={selectedStudentAttempt.id}
+                        videoDuration={0}
+                        currentTime={currentVideoTime}
+                        feedbackItems={[]}
+                        onAddFeedback={async (feedback) => {
+                          console.log('Adding feedback for student:', selectedStudentAttempt.student_name, feedback);
+                          // TODO: Implement feedback saving
+                        }}
+                        onUpdateFeedback={async (id, feedback) => {
+                          console.log('Updating feedback:', id, feedback);
+                          // TODO: Implement feedback updating
+                        }}
+                        onDeleteFeedback={async (id) => {
+                          console.log('Deleting feedback:', id);
+                          // TODO: Implement feedback deletion
+                        }}
+                        onSeekToTimestamp={(timestamp) => {
+                          setCurrentVideoTime(timestamp);
+                        }}
+                      />
                     </div>
-                  ) : (
-                    <div className="text-center py-8 text-gray-500">
-                      <p>No attempts yet</p>
-                    </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
