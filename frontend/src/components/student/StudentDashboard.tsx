@@ -6,7 +6,7 @@ import type { HandLandmarkFrame, RecordingData } from '../../types/landmarks';
 import { supabase } from '../../config/supabase';
 import { SupabaseService } from '../../services/supabase';
 import { useSignComparison } from '../../hooks/useSignComparison';
-import { StudentVideoDebug } from './StudentVideoDebug';
+
 
 interface Sign {
   id: string;
@@ -609,8 +609,7 @@ export function StudentDashboard() {
         </div>
       )}
 
-      {/* Student Video Debug */}
-      <StudentVideoDebug />
+
     </div>
   );
 }

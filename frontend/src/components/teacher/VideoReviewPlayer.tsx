@@ -245,9 +245,9 @@ export const VideoReviewPlayer: React.FC<VideoReviewPlayerProps> = ({
   };
 
   return (
-    <div className="flex flex-col space-y-4">
+    <div className="flex flex-col space-y-4 max-w-full">
       {/* Video Container */}
-      <div className="relative bg-black rounded-lg overflow-hidden">
+      <div className="relative bg-black rounded-lg overflow-hidden max-w-full">
         <video
           ref={videoRef}
           src={videoUrl}
@@ -276,10 +276,10 @@ export const VideoReviewPlayer: React.FC<VideoReviewPlayerProps> = ({
       </div>
 
       {/* Controls */}
-      <div className="bg-gray-800 text-white p-4 rounded-lg">
+      <div className="bg-gray-800 text-white p-4 rounded-lg max-w-full overflow-hidden">
         {/* Main controls row */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center space-x-4">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div className="flex items-center space-x-2 sm:space-x-4 flex-wrap">
             {/* Play/Pause */}
             <button
               onClick={togglePlayPause}
@@ -335,7 +335,7 @@ export const VideoReviewPlayer: React.FC<VideoReviewPlayerProps> = ({
             )}
           </div>
 
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 sm:space-x-4 flex-wrap">
             {/* Speed control */}
             <div className="flex items-center space-x-2">
               <span className="text-sm">Speed:</span>
@@ -382,7 +382,7 @@ export const VideoReviewPlayer: React.FC<VideoReviewPlayerProps> = ({
         </div>
 
         {/* Timeline */}
-        <div className="space-y-2">
+        <div className="space-y-2 w-full">
           <div
             ref={timelineRef}
             className="relative h-4 bg-gray-600 rounded-full cursor-pointer"
@@ -430,8 +430,9 @@ export const VideoReviewPlayer: React.FC<VideoReviewPlayerProps> = ({
         </div>
 
         {/* Keyboard shortcuts help */}
-        <div className="text-xs text-gray-400 mt-2">
-          Shortcuts: Space/K (play/pause), ←/→ (frame nav), ↑/↓ (speed), M (mute)
+        <div className="text-xs text-gray-400 mt-2 break-words">
+          <span className="hidden sm:inline">Shortcuts: Space/K (play/pause), ←/→ (frame nav), ↑/↓ (speed), M (mute)</span>
+          <span className="sm:hidden">Shortcuts: Spacebar (play/pause), ←/→ (frame), ↑/↓ (speed), M (mute)</span>
         </div>
       </div>
     </div>

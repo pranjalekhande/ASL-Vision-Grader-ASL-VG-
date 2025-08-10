@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useAuth2FA } from '../../hooks/useAuth2FA';
 import { supabase } from '../../config/supabase';
 import { ReferenceRecorder } from '../signs/ReferenceRecorder';
+import { VideoReviewPlayer } from './VideoReviewPlayer';
+import { TimestampedFeedback } from './TimestampedFeedback';
 
-type DashboardView = 'overview' | 'exemplars' | 'students' | 'analytics';
+type DashboardView = 'overview' | 'exemplars' | 'students' | 'analytics' | 'video-review' | 'feedback-templates';
 
 interface SignData {
   id: string;
@@ -32,6 +34,10 @@ interface StudentAttempt {
   score_movement: number | null;
   created_at: string;
   video_url: string | null;
+  student_id?: string;
+  student_name?: string;
+  landmarks?: any;
+  feedback_count?: number;
 }
 
 export function TeacherDashboard() {
@@ -43,6 +49,11 @@ export function TeacherDashboard() {
   const [showRecorder, setShowRecorder] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<StudentData | null>(null);
   const [showStudentDetail, setShowStudentDetail] = useState(false);
+  
+  // Video review state
+  const [recentAttempts, setRecentAttempts] = useState<StudentAttempt[]>([]);
+  const [selectedAttempt, setSelectedAttempt] = useState<StudentAttempt | null>(null);
+  const [currentVideoTime, setCurrentVideoTime] = useState(0);
 
   useEffect(() => {
     loadDashboardData();
@@ -210,6 +221,81 @@ export function TeacherDashboard() {
     return Math.round((attempt.score_shape + attempt.score_location + attempt.score_movement) / 3);
   };
 
+  // Load recent attempts for video review
+  const loadRecentAttempts = async () => {
+    try {
+      const { data: attempts, error } = await supabase
+        .from('attempts')
+        .select(`
+          id,
+          student_id,
+          sign_id,
+          score_shape,
+          score_location,
+          score_movement,
+          created_at,
+          video_url,
+          landmarks
+        `)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) throw error;
+
+      if (attempts) {
+        // Fetch student and sign names separately
+        const attemptsWithDetails = await Promise.all(
+          attempts.map(async (attempt) => {
+            // Get student name
+            const { data: studentData } = await supabase
+              .from('profiles')
+              .select('full_name')
+              .eq('id', attempt.student_id)
+              .single();
+
+            // Get sign name
+            const { data: signData } = await supabase
+              .from('signs')
+              .select('name')
+              .eq('id', attempt.sign_id)
+              .single();
+
+            // Get feedback count (if feedback table exists)
+            let feedbackCount = 0;
+            try {
+              const { data: feedbackData } = await supabase
+                .from('feedback')
+                .select('id')
+                .eq('attempt_id', attempt.id);
+              feedbackCount = feedbackData?.length || 0;
+            } catch (feedbackError) {
+              // Feedback table might not exist yet
+              console.log('Feedback table not available:', feedbackError);
+            }
+
+            return {
+              ...attempt,
+              student_name: studentData?.full_name || 'Unknown Student',
+              sign_name: signData?.name || 'Unknown Sign',
+              feedback_count: feedbackCount
+            };
+          })
+        );
+
+        setRecentAttempts(attemptsWithDetails);
+      }
+    } catch (error) {
+      console.error('Error loading recent attempts:', error);
+    }
+  };
+
+  // Load recent attempts when video-review tab is selected
+  useEffect(() => {
+    if (currentView === 'video-review') {
+      loadRecentAttempts();
+    }
+  }, [currentView]);
+
   const NavButton = ({ view, children }: { view: DashboardView; children: React.ReactNode }) => (
     <button
       onClick={() => setCurrentView(view)}
@@ -273,11 +359,13 @@ export function TeacherDashboard() {
         </div>
 
         {/* Navigation */}
-        <div className="flex space-x-4 mb-8">
-          <NavButton view="overview">Overview</NavButton>
-          <NavButton view="exemplars">Manage Exemplars</NavButton>
-          <NavButton view="students">Student Progress</NavButton>
-          <NavButton view="analytics">Analytics</NavButton>
+        <div className="flex flex-wrap gap-2 mb-8">
+          <NavButton view="overview">📊 Overview</NavButton>
+          <NavButton view="exemplars">📝 Manage Exemplars</NavButton>
+          <NavButton view="students">👥 Student Progress</NavButton>
+          <NavButton view="analytics">📈 Analytics</NavButton>
+          <NavButton view="video-review">🎥 Video Review</NavButton>
+          <NavButton view="feedback-templates">💬 Feedback Templates</NavButton>
         </div>
 
         {/* Content */}
@@ -592,6 +680,210 @@ export function TeacherDashboard() {
               <div className="text-center py-8 text-gray-500">
                 <p>Performance charts would go here</p>
                 <p className="text-sm">Integration with charting library needed</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {currentView === 'video-review' && (
+          <div className="space-y-6">
+            {!selectedAttempt ? (
+              <div>
+                {/* Recent Attempts List */}
+                <div className="bg-white rounded-lg shadow">
+                  <div className="px-6 py-4 border-b border-gray-200">
+                    <h3 className="text-lg font-medium text-gray-900">Recent Student Attempts</h3>
+                    <p className="text-sm text-gray-600">Click on an attempt to review the video and provide feedback</p>
+                  </div>
+                  
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sign</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scores</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feedback</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {recentAttempts.map((attempt) => (
+                          <tr key={attempt.id} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {attempt.student_name}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {attempt.sign_name}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {attempt.score_shape && attempt.score_location && attempt.score_movement ? (
+                                <div className="flex space-x-1">
+                                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                    S: {attempt.score_shape}%
+                                  </span>
+                                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
+                                    L: {attempt.score_location}%
+                                  </span>
+                                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-purple-100 text-purple-800">
+                                    M: {attempt.score_movement}%
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-gray-400">No scores</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {new Date(attempt.created_at).toLocaleDateString()}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {attempt.video_url ? (
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                  ✓ Available
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                  ✗ Missing
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                {attempt.feedback_count || 0} comments
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                              <button
+                                onClick={() => setSelectedAttempt(attempt)}
+                                disabled={!attempt.video_url}
+                                className={`${
+                                  attempt.video_url
+                                    ? 'text-blue-600 hover:text-blue-900'
+                                    : 'text-gray-400 cursor-not-allowed'
+                                }`}
+                              >
+                                Review
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {recentAttempts.length === 0 && (
+                    <div className="p-6 text-center text-gray-500">
+                      <p>No student attempts found.</p>
+                      <p className="text-sm">Student recordings will appear here for review.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Back button and attempt info */}
+                <div className="bg-white rounded-lg shadow p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <button
+                      onClick={() => setSelectedAttempt(null)}
+                      className="flex items-center text-sm text-blue-600 hover:text-blue-800"
+                    >
+                      ← Back to Attempts
+                    </button>
+                    <div className="text-right">
+                      <h2 className="text-lg font-medium text-gray-900">
+                        {selectedAttempt.student_name} - {selectedAttempt.sign_name}
+                      </h2>
+                      <p className="text-sm text-gray-600">
+                        Recorded on {new Date(selectedAttempt.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {/* Scores display */}
+                  {selectedAttempt.score_shape && selectedAttempt.score_location && selectedAttempt.score_movement && (
+                    <div className="grid grid-cols-3 gap-4 mb-6">
+                      <div className="text-center p-4 bg-blue-50 rounded-lg">
+                        <div className="text-2xl font-bold text-blue-600">{selectedAttempt.score_shape}%</div>
+                        <div className="text-sm text-blue-800">Hand Shape</div>
+                      </div>
+                      <div className="text-center p-4 bg-green-50 rounded-lg">
+                        <div className="text-2xl font-bold text-green-600">{selectedAttempt.score_location}%</div>
+                        <div className="text-sm text-green-800">Location</div>
+                      </div>
+                      <div className="text-center p-4 bg-purple-50 rounded-lg">
+                        <div className="text-2xl font-bold text-purple-600">{selectedAttempt.score_movement}%</div>
+                        <div className="text-sm text-purple-800">Movement</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Video Player */}
+                {selectedAttempt.video_url && (
+                  <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="text-lg font-medium text-gray-900 mb-4">Student Video Review</h3>
+                    <VideoReviewPlayer
+                      videoUrl={selectedAttempt.video_url}
+                      landmarks={selectedAttempt.landmarks?.frames || []}
+                      onFrameChange={(_, timestamp) => {
+                        setCurrentVideoTime(timestamp);
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Feedback Section */}
+                <div className="bg-white rounded-lg shadow p-6">
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">Provide Feedback</h3>
+                  <TimestampedFeedback
+                    attemptId={selectedAttempt.id}
+                    videoDuration={0}
+                    currentTime={currentVideoTime}
+                    feedbackItems={[]}
+                    onAddFeedback={async (feedback) => {
+                      console.log('Adding feedback:', feedback);
+                      // TODO: Implement feedback saving
+                    }}
+                    onUpdateFeedback={async (id, feedback) => {
+                      console.log('Updating feedback:', id, feedback);
+                      // TODO: Implement feedback updating
+                    }}
+                    onDeleteFeedback={async (id) => {
+                      console.log('Deleting feedback:', id);
+                      // TODO: Implement feedback deletion
+                    }}
+                    onSeekToTimestamp={(timestamp) => {
+                      setCurrentVideoTime(timestamp);
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {currentView === 'feedback-templates' && (
+          <div className="bg-white rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900">Feedback Templates</h3>
+              <p className="text-sm text-gray-600">Create and manage reusable feedback templates</p>
+            </div>
+            
+            <div className="p-6">
+              <div className="text-center py-12 text-gray-500">
+                <div className="text-6xl mb-4">💬</div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Feedback Templates</h3>
+                <p className="mb-4">Create pre-written feedback for common corrections and praise.</p>
+                <p className="text-sm">This feature will help you provide consistent, helpful feedback faster.</p>
+                
+                <div className="mt-8">
+                  <button className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                    Create Template
+                  </button>
+                </div>
               </div>
             </div>
           </div>

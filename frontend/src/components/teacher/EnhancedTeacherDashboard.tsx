@@ -5,10 +5,7 @@ import { SynchronizedVideoComparison } from './SynchronizedVideoComparison';
 import { VideoReviewPlayer } from './VideoReviewPlayer';
 import { TimestampedFeedback } from './TimestampedFeedback';
 import { LandmarkDifferenceVisualization } from './LandmarkDifferenceVisualization';
-import { VideoDebugInfo } from './VideoDebugInfo';
-import { CreateTestVideo } from './CreateTestVideo';
-import { StudentVideoDebug } from '../student/StudentVideoDebug';
-import { FixOrphanedVideos } from './FixOrphanedVideos';
+
 import type { HandLandmarkFrame } from '../../types/landmarks';
 
 type DashboardView = 'overview' | 'review' | 'analytics' | 'feedback-templates';
@@ -455,17 +452,7 @@ export function EnhancedTeacherDashboard() {
               </div>
             )}
 
-            {/* Video Debug Information */}
-            <VideoDebugInfo />
-            
-            {/* Create Test Video */}
-            <CreateTestVideo />
-            
-            {/* Student Upload Debug */}
-            <StudentVideoDebug />
-            
-            {/* Fix Orphaned Videos */}
-            <FixOrphanedVideos />
+
           </div>
         )}
 
